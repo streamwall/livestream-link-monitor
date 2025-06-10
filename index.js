@@ -286,13 +286,13 @@ async function processUrl(url, source, postedBy, messageContent = '') {
     const validation = validateStreamingUrl(normalizedUrl);
     if (!validation.valid) {
       logger.warn(`Invalid URL rejected: ${normalizedUrl} - ${validation.reason}`);
-      return false;
+      return { success: false, reason: 'invalid' };
     }
 
     // Check if URL is already in the sheet
     if (isUrlInSheet(normalizedUrl)) {
       logger.info(`URL already exists in sheet: ${normalizedUrl}`);
-      return false;
+      return { success: false, reason: 'duplicate' };
     }
 
     const platform = detectPlatform(normalizedUrl);
@@ -326,10 +326,10 @@ async function processUrl(url, source, postedBy, messageContent = '') {
       cacheMutex.release();
     }
 
-    return true; // Successfully added
+    return { success: true }; // Successfully added
   } catch (error) {
     logger.error(`Error processing URL: ${error.message}`);
-    return false;
+    return { success: false, reason: 'error' };
   }
 }
 
@@ -357,6 +357,8 @@ discord.on('messageCreate', async (message) => {
       logger.info(`Received Discord message from ${message.author.username}: ${message.content}`);
       const urls = extractStreamingUrls(message.content);
       let anyUrlAdded = false;
+      let anyDuplicate = false;
+      let anyIgnored = false;
 
       // Process URLs
       for (const url of urls) {
@@ -365,20 +367,39 @@ discord.on('messageCreate', async (message) => {
         // Check if URL is in ignore list
         if (urlIgnoreList.has(normalizedUrl)) {
           logger.info(`Ignoring URL from ignore list: ${normalizedUrl}`);
+          anyIgnored = true;
           continue;
         }
 
-        const wasAdded = await processUrl(url, 'Discord', message.author.username, message.content);
-        if (wasAdded) {
+        const result = await processUrl(url, 'Discord', message.author.username, message.content);
+        if (result.success) {
           anyUrlAdded = true;
+        } else if (result.reason === 'duplicate') {
+          anyDuplicate = true;
         }
       }
 
-      // Add checkmark reaction if any URL was successfully added
-      if (anyUrlAdded && config.DISCORD_CONFIRM_REACTION) {
+      // Add appropriate reaction based on results (priority: success > ignored > duplicate)
+      if (config.DISCORD_CONFIRM_REACTION) {
         try {
-          await message.react('✅');
-          logger.info(`Added checkmark reaction to Discord message from ${message.author.username}`);
+          let reaction = null;
+          let reactionType = null;
+          
+          if (anyUrlAdded) {
+            reaction = '✅';
+            reactionType = 'checkmark';
+          } else if (anyIgnored) {
+            reaction = '❌';
+            reactionType = 'ignored';
+          } else if (anyDuplicate) {
+            reaction = '🔁';
+            reactionType = 'duplicate';
+          }
+          
+          if (reaction) {
+            await message.react(reaction);
+            logger.info(`Added ${reactionType} reaction to Discord message from ${message.author.username}`);
+          }
         } catch (error) {
           logger.error(`Failed to add reaction: ${error.message}`);
         }
@@ -408,6 +429,8 @@ twitch.on('message', async (channel, tags, message, self) => {
 
     const urls = extractStreamingUrls(message);
     let anyUrlAdded = false;
+    let anyDuplicate = false;
+    let anyIgnored = false;
 
     // Process URLs
     for (const url of urls) {
@@ -416,20 +439,39 @@ twitch.on('message', async (channel, tags, message, self) => {
       // Check if URL is in ignore list
       if (urlIgnoreList.has(normalizedUrl)) {
         logger.info(`Ignoring URL from ignore list: ${normalizedUrl}`);
+        anyIgnored = true;
         continue;
       }
 
-      const wasAdded = await processUrl(url, 'Twitch', tags.username, message);
-      if (wasAdded) {
+      const result = await processUrl(url, 'Twitch', tags.username, message);
+      if (result.success) {
         anyUrlAdded = true;
+      } else if (result.reason === 'duplicate') {
+        anyDuplicate = true;
       }
     }
 
-    // Send checkmark reply if any URL was successfully added
-    if (anyUrlAdded && config.TWITCH_CONFIRM_REPLY) {
+    // Send appropriate reply based on results (priority: success > ignored > duplicate)
+    if (config.TWITCH_CONFIRM_REPLY) {
       try {
-        await twitch.say(channel, `@${tags.username} ✅`);
-        logger.info(`Sent checkmark reply to Twitch user ${tags.username}`);
+        let replyEmoji = '';
+        let replyType = '';
+        
+        if (anyUrlAdded) {
+          replyEmoji = '✅';
+          replyType = 'checkmark';
+        } else if (anyIgnored) {
+          replyEmoji = '❌';
+          replyType = 'ignored';
+        } else if (anyDuplicate) {
+          replyEmoji = '🔁';
+          replyType = 'duplicate';
+        }
+        
+        if (replyEmoji) {
+          await twitch.say(channel, `@${tags.username} ${replyEmoji}`);
+          logger.info(`Sent ${replyType} reply to Twitch user ${tags.username}`);
+        }
       } catch (error) {
         logger.error(`Failed to send Twitch reply: ${error.message}`);
       }
