@@ -266,8 +266,9 @@ async function addToSheet(data) {
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: config.GOOGLE_SHEET_ID,
-      range: `${config.SHEET_TAB_LIVESTREAMS}!A:Z`, // Use a wide range to handle any number of columns
+      range: `${config.SHEET_TAB_LIVESTREAMS}!A:A`, // Always append to column A to ensure rows start from the first column
       valueInputOption: 'USER_ENTERED',
+      insertDataOption: 'INSERT_ROWS',
       requestBody: { values: [rowValues] }
     });
 
