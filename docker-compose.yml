@@ -1,0 +1,44 @@
+services:
+  livestream-monitor:
+    build: .
+    container_name: livestream-monitor
+    restart: unless-stopped
+    environment:
+      # Discord Configuration
+      - DISCORD_TOKEN=${DISCORD_TOKEN}
+      - DISCORD_CHANNEL_ID=${DISCORD_CHANNEL_ID}
+
+      # Twitch Configuration
+      - TWITCH_CHANNEL=${TWITCH_CHANNEL}
+
+      # Google Sheets Configuration
+      - GOOGLE_SHEET_ID=${GOOGLE_SHEET_ID}
+
+      # Optional Configuration
+      - CHECK_INTERVAL=${CHECK_INTERVAL:-60000}
+      - MAX_CONCURRENT_CHECKS=${MAX_CONCURRENT_CHECKS:-3}
+
+      # Playwright Configuration
+      - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
+
+    volumes:
+      - ./credentials.json:/app/credentials.json:ro
+      - ./logs:/app/logs
+      - ./.env:/app/.env:ro
+      - ./index.js:/app/index.js:ro
+      - ./config.js:/app/config.js:ro
+
+    # Required for Playwright
+    cap_add:
+      - SYS_ADMIN
+
+    # Resource limits
+    mem_limit: 2g
+    cpus: '1.0'
+
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
