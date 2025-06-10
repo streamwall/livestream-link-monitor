@@ -12,11 +12,10 @@ A Node.js application that monitors Twitch chat and Discord channels for live st
   - YouTube
   - Kick.com
   - Facebook
-- Uses Playwright to verify if streams are actually live
-- Automatically adds live streams to Google Sheets
+- Automatically adds new streaming URLs to Google Sheets
+- Deduplication - checks if URLs already exist in sheet before adding
 - Configurable ignore lists for users and URLs synced from Google Sheets
 - Rate limiting to prevent spam abuse
-- Browser pooling for efficient resource usage
 - Concurrent URL processing with configurable limits
 - URL validation for security
 - Dockerized for easy deployment
@@ -78,12 +77,10 @@ Edit the `.env` file with your configuration:
 - `TWITCH_CHANNEL`: The Twitch channel name to monitor (without #)
 - `GOOGLE_SHEET_ID`: Your Google Sheet ID
 - `GOOGLE_CREDENTIALS_PATH`: Path to Google service account credentials (default: ./credentials.json)
-- `CHECK_INTERVAL`: How often to re-check URLs (in milliseconds, default: 60000)
-- `MAX_CONCURRENT_CHECKS`: Maximum concurrent URL checks (default: 3)
 - `IGNORE_LIST_SYNC_INTERVAL`: How often to sync ignore lists from Google Sheets (default: 10000ms/10 seconds)
+- `EXISTING_URLS_SYNC_INTERVAL`: How often to sync existing URLs from sheet (default: 60000ms/1 minute)
 - `RATE_LIMIT_WINDOW_MS`: Rate limit time window (default: 60000ms/1 minute)
 - `RATE_LIMIT_MAX_REQUESTS`: Max requests per user per window (default: 10)
-- `MAX_BROWSERS`: Maximum browser instances in pool (default: 3)
 
 ## Development
 
@@ -94,12 +91,7 @@ To run locally without Docker:
    npm install
    ```
 
-2. Install Playwright browsers:
-   ```bash
-   npx playwright install chromium
-   ```
-
-3. Run the application:
+2. Run the application:
    ```bash
    npm start
    ```
@@ -122,10 +114,10 @@ To run locally without Docker:
    - Check that the Sheet ID is correct
    - Review logs for authentication errors
 
-3. **Playwright issues**
-   - The Docker image includes all necessary dependencies
-   - If running locally, ensure Chromium is installed
-   - Check memory limits if browser crashes occur
+3. **Application issues**
+   - Check logs for API rate limiting from Google Sheets
+   - Ensure the sheet structure matches expected columns
+   - Verify network connectivity to Discord and Twitch
 
 ## Ignore Lists
 
@@ -141,9 +133,9 @@ Add entries to the respective Google Sheets tabs. The lists are automatically sy
 
 To add support for new streaming platforms:
 
-1. Add URL pattern to `streamingPatterns` array
-2. Add platform detection in `detectPlatform()`
-3. Add live detection logic in `isLiveStream()`
+1. Add URL pattern to `streamingPatterns` array in `lib/platformDetector.js`
+2. Add platform detection in `detectPlatform()` function in `lib/platformDetector.js`
+3. Update URL validation in `lib/urlValidator.js` to include the new domain
 
 ## License
 

@@ -20,14 +20,10 @@ module.exports = {
   GOOGLE_CREDENTIALS_PATH: process.env.GOOGLE_CREDENTIALS_PATH || './credentials.json',
 
   // Optional Configuration
-  CHECK_INTERVAL: validatePositiveInt(process.env.CHECK_INTERVAL, 60000, 1000), // Re-check interval in ms
-  MAX_CONCURRENT_CHECKS: validatePositiveInt(process.env.MAX_CONCURRENT_CHECKS, 3),
   IGNORE_LIST_SYNC_INTERVAL: validatePositiveInt(process.env.IGNORE_LIST_SYNC_INTERVAL, 10000, 1000), // Sync ignore lists every 10 seconds by default
+  EXISTING_URLS_SYNC_INTERVAL: validatePositiveInt(process.env.EXISTING_URLS_SYNC_INTERVAL, 60000, 1000), // Sync existing URLs every minute by default
   
   // Rate limiting
   RATE_LIMIT_WINDOW_MS: validatePositiveInt(process.env.RATE_LIMIT_WINDOW_MS, 60000, 1000), // 1 minute
-  RATE_LIMIT_MAX_REQUESTS: validatePositiveInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10),
-  
-  // Browser pool
-  MAX_BROWSERS: validatePositiveInt(process.env.MAX_BROWSERS, 3)
+  RATE_LIMIT_MAX_REQUESTS: validatePositiveInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10)
 };

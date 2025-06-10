@@ -1,18 +1,15 @@
 # Dockerfile
-FROM mcr.microsoft.com/playwright:v1.42.0-focal
+FROM node:18-alpine
 
 # Set working directory
 WORKDIR /app
 
 # Create non-root user first
-RUN groupadd -r appuser && useradd -r -g appuser appuser
+RUN addgroup -g 1001 -S appuser && adduser -S -u 1001 -G appuser appuser
 
 # Install Node.js dependencies
 COPY package*.json ./
 RUN npm ci --only=production
-
-# Install Playwright browsers (already included in base image)
-# RUN npx playwright install chromium
 
 # Create necessary directories
 RUN mkdir -p /app/logs /app/lib
