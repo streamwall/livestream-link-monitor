@@ -13,6 +13,7 @@ A Node.js application that monitors Twitch chat and Discord channels for live st
   - Kick.com
   - Facebook
 - Automatically adds new streaming URLs to Google Sheets
+- Location parsing - extracts city/state from messages and adds to sheet
 - Deduplication - checks if URLs already exist in sheet before adding
 - Configurable ignore lists for users and URLs synced from Google Sheets
 - Rate limiting to prevent spam abuse
@@ -40,10 +41,11 @@ A Node.js application that monitors Twitch chat and Discord channels for live st
      ```
      Source | City | State | Platform | Status | Link | Notes | Title | Added Date | Last Checked (PST) | Last Live (PST) | Embed Link | Posted By | Orientation | Status Link
      ```
-   - Create three additional tabs for ignore lists:
+   - Create four additional tabs:
      - **"Twitch User Ignorelist"** - Column A header: "Username"
      - **"Discord User Ignorelist"** - Column A header: "Username"
      - **"URL Ignorelist"** - Column A header: "URL"
+     - **"Known Cities"** - Column A header: "City", Column B header: "State"
    - Get the Sheet ID from the URL
 
 ## Setup
@@ -87,18 +89,23 @@ Edit the `.env` file with your configuration:
 **Sync Intervals**
 - `IGNORE_LIST_SYNC_INTERVAL`: How often to sync ignore lists (default: 10000ms)
 - `EXISTING_URLS_SYNC_INTERVAL`: How often to sync existing URLs (default: 60000ms)
+- `KNOWN_CITIES_SYNC_INTERVAL`: How often to sync known cities (default: 300000ms / 5 minutes)
 
 **Rate Limiting**
 - `RATE_LIMIT_WINDOW_MS`: Rate limit time window (default: 60000ms)
 - `RATE_LIMIT_MAX_REQUESTS`: Max requests per user per window (default: 10)
 
 **Sheet Tab Names**
-- `SHEET_TAB_LIVESTREAMS`: Main data tab name (default: "Livestreams")
+- `SHEET_TAB_LIVESTREAMS`: Main data tab name (default: "Livesheet")
 - `SHEET_TAB_TWITCH_IGNORE`: Twitch ignore list tab (default: "Twitch User Ignorelist")
 - `SHEET_TAB_DISCORD_IGNORE`: Discord ignore list tab (default: "Discord User Ignorelist")
 - `SHEET_TAB_URL_IGNORE`: URL ignore list tab (default: "URL Ignorelist")
+- `SHEET_TAB_KNOWN_CITIES`: Known cities tab (default: "Known Cities")
 
 **Column Names**
+- `COLUMN_SOURCE`: Source column name (default: "Source")
+- `COLUMN_CITY`: City column name (default: "City")
+- `COLUMN_STATE`: State column name (default: "State")
 - `COLUMN_PLATFORM`: Platform column name (default: "Platform")
 - `COLUMN_STATUS`: Status column name (default: "Status")
 - `COLUMN_LINK`: Link column name (default: "Link")
@@ -156,10 +163,20 @@ To run locally without Docker:
 The application supports ignore lists for filtering out specific users and URLs:
 
 - **Twitch User Ignorelist**: Usernames listed here will have their Twitch messages ignored
-- **Discord User Ignorelist**: Usernames listed here will have their Discord messages ignored  
+- **Discord User Ignorelist**: Usernames listed here will have their Discord messages ignored
 - **URL Ignorelist**: URLs listed here will be ignored from both platforms
 
 Add entries to the respective Google Sheets tabs. The lists are automatically synced at the configured interval.
+
+## Location Parsing
+
+The application automatically extracts location information from messages:
+
+- **Known Cities Tab**: Populate the "Known Cities" tab with city names in column A and state names in column B
+- **City Aliases**: Common abbreviations are automatically handled (e.g., NYC → New York City, LA → Los Angeles)
+- **Case-Insensitive**: Matching works regardless of capitalization
+- **Pattern Matching**: Detects patterns like "city, state" and "city ST" (state abbreviations)
+- **Auto-Population**: Detected city and state are added to the respective columns in the main sheet
 
 ## Adding New Platforms
 

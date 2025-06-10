@@ -18,7 +18,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Architecture
 
-This is a Node.js monitoring application that watches Twitch chat and Discord channels for livestream links and records new ones to a Google Sheet.
+This is a Node.js monitoring application that watches Twitch chat and Discord channels for livestream links, extracts location information from messages, and records new links with their location data to a Google Sheet.
 
 ### Core Components
 
@@ -34,7 +34,8 @@ This is a Node.js monitoring application that watches Twitch chat and Discord ch
    - Normalizes URLs to ensure proper protocol
    - Checks if URL already exists in Google Sheet
    - Detects platform (Twitch, YouTube, TikTok, Kick, Facebook)
-   - Adds new URLs to Google Sheets
+   - Parses location (city/state) from message content (lib/locationParser.js)
+   - Adds new URLs with location data to Google Sheets
    - Returns success/failure for confirmation feedback
 
 3. **Google Sheets Integration** (index.js:63-231)
@@ -66,7 +67,15 @@ This is a Node.js monitoring application that watches Twitch chat and Discord ch
    - Confirmation behaviors can be enabled/disabled
    - Validation for numeric environment variables
 
-7. **Performance & Security Features**
+7. **Location Parsing System** (lib/locationParser.js)
+   - Fetches known cities from "Known Cities" tab in Google Sheets
+   - Caches city/state data with normalized lookups
+   - Supports common city aliases (NYC -> New York City, LA -> Los Angeles, etc.)
+   - Case-insensitive matching with multiple parsing strategies
+   - Handles "city, state" patterns and state abbreviations
+   - Syncs with Google Sheets periodically
+
+8. **Performance & Security Features**
    - **Rate Limiting** (lib/rateLimiter.js): Prevents spam abuse
    - **URL Validation** (lib/urlValidator.js): Blocks malicious URLs
    - **Health Checks**: Docker health monitoring
@@ -81,6 +90,9 @@ All configuration is managed through environment variables:
 - Google Sheet ID
 - Optional: ignore list sync interval (default: 10 seconds)
 - Optional: existing URLs sync interval (default: 60 seconds)
+- Optional: known cities sync interval (default: 5 minutes)
+- Sheet tab names (Livesheet, Known Cities, ignore lists)
+- Column names (City, State, and all existing columns)
 
 ### Docker Setup
 
@@ -92,14 +104,15 @@ The application runs in a Docker container based on Node.js Alpine image for a l
 2. **Dynamic Column Mapping**: Reads sheet headers to handle column reordering
 3. **Comprehensive Configuration**: All values configurable via environment variables
 4. **Deduplication First**: Checks existing URLs before adding to prevent duplicates
-5. **In-Memory Caching**: Maintains caches for performance (URLs, column mapping)
+5. **In-Memory Caching**: Maintains caches for performance (URLs, column mapping, cities)
 6. **User Feedback**: Context-appropriate confirmations (Discord reactions, Twitch replies)
 7. **Rate Limiting**: Prevents spam abuse with configurable per-user limits
 8. **Platform-Agnostic URL Extraction**: Single regex pattern array handles all platforms
-9. **Modular Design**: Separated concerns into lib/ modules for maintainability
-10. **Security First**: URL validation, runs as non-root user in Docker
-11. **Structured Logging**: Winston logger with configurable level and file output
-12. **Graceful Shutdown**: Handles SIGINT, SIGTERM, SIGHUP, uncaught exceptions
+9. **Location Intelligence**: Extracts city/state from messages using cached known cities
+10. **Modular Design**: Separated concerns into lib/ modules for maintainability
+11. **Security First**: URL validation, runs as non-root user in Docker
+12. **Structured Logging**: Winston logger with configurable level and file output
+13. **Graceful Shutdown**: Handles SIGINT, SIGTERM, SIGHUP, uncaught exceptions
 
 ### Adding New Platforms
 

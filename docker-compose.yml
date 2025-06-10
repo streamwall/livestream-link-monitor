@@ -17,31 +17,35 @@ services:
       - GOOGLE_CREDENTIALS_PATH=/app/credentials.json
 
       # Optional Configuration
-      - IGNORE_LIST_SYNC_INTERVAL=${IGNORE_LIST_SYNC_INTERVAL:-10000}
-      - EXISTING_URLS_SYNC_INTERVAL=${EXISTING_URLS_SYNC_INTERVAL:-60000}
-      
+      - IGNORE_LIST_SYNC_INTERVAL=${IGNORE_LIST_SYNC_INTERVAL:-30000}
+      - EXISTING_URLS_SYNC_INTERVAL=${EXISTING_URLS_SYNC_INTERVAL:-30000}
+      - KNOWN_CITIES_SYNC_INTERVAL=${KNOWN_CITIES_SYNC_INTERVAL:-300000}
+
       # Rate limiting
       - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-60000}
       - RATE_LIMIT_MAX_REQUESTS=${RATE_LIMIT_MAX_REQUESTS:-10}
-      
+
       # Sheet configuration (optional)
-      - SHEET_TAB_LIVESTREAMS=${SHEET_TAB_LIVESTREAMS:-Livestreams}
+      - SHEET_TAB_LIVESTREAMS=${SHEET_TAB_LIVESTREAMS:-Livesheet}
       - SHEET_TAB_TWITCH_IGNORE=${SHEET_TAB_TWITCH_IGNORE:-Twitch User Ignorelist}
       - SHEET_TAB_DISCORD_IGNORE=${SHEET_TAB_DISCORD_IGNORE:-Discord User Ignorelist}
       - SHEET_TAB_URL_IGNORE=${SHEET_TAB_URL_IGNORE:-URL Ignorelist}
-      
+
       # Column configuration (optional)
+      - COLUMN_SOURCE=${COLUMN_SOURCE:-Source}
       - COLUMN_PLATFORM=${COLUMN_PLATFORM:-Platform}
       - COLUMN_STATUS=${COLUMN_STATUS:-Status}
       - COLUMN_LINK=${COLUMN_LINK:-Link}
       - COLUMN_ADDED_DATE=${COLUMN_ADDED_DATE:-Added Date}
       - COLUMN_POSTED_BY=${COLUMN_POSTED_BY:-Posted By}
-      
+      - COLUMN_CITY=${COLUMN_CITY:-City}
+      - COLUMN_STATE=${COLUMN_STATE:-State}
+
       # Other configuration (optional)
       - STATUS_NEW_LINK=${STATUS_NEW_LINK:-Live}
       - TIMEZONE=${TIMEZONE:-America/Los_Angeles}
       - LOG_LEVEL=${LOG_LEVEL:-info}
-      
+
       # Confirmation settings (optional)
       - DISCORD_CONFIRM_REACTION=${DISCORD_CONFIRM_REACTION:-true}
       - TWITCH_CONFIRM_REPLY=${TWITCH_CONFIRM_REPLY:-true}
@@ -64,7 +68,7 @@ services:
         limits:
           memory: 512m
           cpus: '0.5'
-          
+
     # Health check
     healthcheck:
       test: ["CMD", "pgrep", "-x", "node"]
