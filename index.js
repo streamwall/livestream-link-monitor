@@ -1,4 +1,6 @@
 // index.js
+require('dotenv').config();
+
 const { Client, GatewayIntentBits } = require('discord.js');
 const tmi = require('tmi.js');
 const { google } = require('googleapis');
@@ -10,14 +12,14 @@ const { extractStreamingUrls, normalizeUrl, detectPlatform } = require('./lib/pl
 
 // Logger setup
 const logger = winston.createLogger({
-  level: 'info',
+  level: config.LOG_LEVEL,
   format: winston.format.combine(
     winston.format.timestamp(),
     winston.format.json()
   ),
   transports: [
     new winston.transports.Console(),
-    new winston.transports.File({ filename: 'app.log' })
+    new winston.transports.File({ filename: config.LOG_FILE })
   ]
 });
 
@@ -33,6 +35,7 @@ const sheets = google.sheets({ version: 'v4', auth });
 const discord = new Client({
   intents: [
     GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent
   ]
 });
@@ -67,7 +70,7 @@ async function fetchIgnoreLists() {
   try {
     const twitchResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: config.GOOGLE_SHEET_ID,
-      range: 'Twitch User Ignorelist!A2:A' // Skip header row
+      range: `${config.SHEET_TAB_TWITCH_IGNORE}!A2:A` // Skip header row
     });
     
     twitchUserIgnoreList = new Set(
@@ -83,7 +86,7 @@ async function fetchIgnoreLists() {
   try {
     const discordResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: config.GOOGLE_SHEET_ID,
-      range: 'Discord User Ignorelist!A2:A' // Skip header row
+      range: `${config.SHEET_TAB_DISCORD_IGNORE}!A2:A` // Skip header row
     });
     
     discordUserIgnoreList = new Set(
@@ -99,7 +102,7 @@ async function fetchIgnoreLists() {
   try {
     const urlResponse = await sheets.spreadsheets.values.get({
       spreadsheetId: config.GOOGLE_SHEET_ID,
-      range: 'URL Ignorelist!A2:A' // Skip header row
+      range: `${config.SHEET_TAB_URL_IGNORE}!A2:A` // Skip header row
     });
     
     urlIgnoreList = new Set(
@@ -124,7 +127,7 @@ async function fetchColumnMapping() {
     
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: config.GOOGLE_SHEET_ID,
-      range: 'Livestreams!1:1' // Get first row (headers)
+      range: `${config.SHEET_TAB_LIVESTREAMS}!1:1` // Get first row (headers)
     });
     
     const headers = response.data.values?.[0] || [];
@@ -147,12 +150,12 @@ async function fetchExistingUrls() {
     logger.info('Fetching existing URLs from Google Sheets');
     
     // Use column mapping to find the Link column
-    const linkColumn = columnMapping['link'];
+    const linkColumn = columnMapping[config.COLUMN_LINK.toLowerCase()];
     if (linkColumn === undefined) {
       logger.warn('Link column not found in mapping, using default column F');
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId: config.GOOGLE_SHEET_ID,
-        range: 'Livestreams!F2:F'
+        range: `${config.SHEET_TAB_LIVESTREAMS}!F2:F`
       });
       
       existingUrlsCache = new Set(
@@ -165,7 +168,7 @@ async function fetchExistingUrls() {
       const columnLetter = String.fromCharCode(65 + linkColumn); // Convert index to letter
       const response = await sheets.spreadsheets.values.get({
         spreadsheetId: config.GOOGLE_SHEET_ID,
-        range: `Livestreams!${columnLetter}2:${columnLetter}`
+        range: `${config.SHEET_TAB_LIVESTREAMS}!${columnLetter}2:${columnLetter}`
       });
       
       existingUrlsCache = new Set(
@@ -191,7 +194,7 @@ function isUrlInSheet(url) {
 // Add row to Google Sheet
 async function addToSheet(data) {
   try {
-    const timestamp = new Date().toLocaleString('en-US', { timeZone: 'America/Los_Angeles' });
+    const timestamp = new Date().toLocaleString('en-US', { timeZone: config.TIMEZONE });
 
     // Create an empty row array based on the number of columns
     const maxColumn = Math.max(...Object.values(columnMapping)) + 1;
@@ -208,18 +211,18 @@ async function addToSheet(data) {
     };
 
     // Set the values we want to add
-    setColumnValue('Platform', data.platform || '');
-    setColumnValue('Status', 'Live');
-    setColumnValue('Link', data.link || '');
-    setColumnValue('Added Date', timestamp);
-    setColumnValue('Posted By', data.postedBy || '');
+    setColumnValue(config.COLUMN_PLATFORM, data.platform || '');
+    setColumnValue(config.COLUMN_STATUS, config.STATUS_NEW_LINK);
+    setColumnValue(config.COLUMN_LINK, data.link || '');
+    setColumnValue(config.COLUMN_ADDED_DATE, timestamp);
+    setColumnValue(config.COLUMN_POSTED_BY, data.postedBy || '');
 
     logger.debug(`Adding to sheet: ${data.link}`);
     logger.debug(`Row values: ${JSON.stringify(rowValues)}`);
 
     await sheets.spreadsheets.values.append({
       spreadsheetId: config.GOOGLE_SHEET_ID,
-      range: 'Livestreams!A:Z', // Use a wide range to handle any number of columns
+      range: `${config.SHEET_TAB_LIVESTREAMS}!A:Z`, // Use a wide range to handle any number of columns
       valueInputOption: 'USER_ENTERED',
       requestBody: { values: [rowValues] }
     });
@@ -239,13 +242,13 @@ async function processUrl(url, source, postedBy) {
     const validation = validateStreamingUrl(normalizedUrl);
     if (!validation.valid) {
       logger.warn(`Invalid URL rejected: ${normalizedUrl} - ${validation.reason}`);
-      return;
+      return false;
     }
     
     // Check if URL is already in the sheet
     if (isUrlInSheet(normalizedUrl)) {
       logger.info(`URL already exists in sheet: ${normalizedUrl}`);
-      return;
+      return false;
     }
     
     const platform = detectPlatform(normalizedUrl);
@@ -260,8 +263,11 @@ async function processUrl(url, source, postedBy) {
     
     // Add to cache to prevent immediate re-processing
     existingUrlsCache.add(normalizedUrl);
+    
+    return true; // Successfully added
   } catch (error) {
     logger.error(`Error processing URL: ${error.message}`);
+    return false;
   }
 }
 
@@ -284,6 +290,7 @@ discord.on('messageCreate', async (message) => {
 
   if (message.channelId === config.DISCORD_CHANNEL_ID) {
     const urls = extractStreamingUrls(message.content);
+    let anyUrlAdded = false;
     
     // Process URLs
     for (const url of urls) {
@@ -295,7 +302,20 @@ discord.on('messageCreate', async (message) => {
         continue;
       }
       
-      await processUrl(url, 'Discord', message.author.username);
+      const wasAdded = await processUrl(url, 'Discord', message.author.username);
+      if (wasAdded) {
+        anyUrlAdded = true;
+      }
+    }
+    
+    // Add checkmark reaction if any URL was successfully added
+    if (anyUrlAdded && config.DISCORD_CONFIRM_REACTION) {
+      try {
+        await message.react('✅');
+        logger.info(`Added checkmark reaction to Discord message from ${message.author.username}`);
+      } catch (error) {
+        logger.error(`Failed to add reaction: ${error.message}`);
+      }
     }
   }
 });
@@ -317,6 +337,7 @@ twitch.on('message', async (channel, tags, message, self) => {
   }
 
   const urls = extractStreamingUrls(message);
+  let anyUrlAdded = false;
   
   // Process URLs
   for (const url of urls) {
@@ -328,7 +349,20 @@ twitch.on('message', async (channel, tags, message, self) => {
       continue;
     }
     
-    await processUrl(url, 'Twitch', tags.username);
+    const wasAdded = await processUrl(url, 'Twitch', tags.username);
+    if (wasAdded) {
+      anyUrlAdded = true;
+    }
+  }
+  
+  // Send checkmark reply if any URL was successfully added
+  if (anyUrlAdded && config.TWITCH_CONFIRM_REPLY) {
+    try {
+      await twitch.say(channel, `@${tags.username} ✅`);
+      logger.info(`Sent checkmark reply to Twitch user ${tags.username}`);
+    } catch (error) {
+      logger.error(`Failed to send Twitch reply: ${error.message}`);
+    }
   }
 });
 
@@ -371,9 +405,9 @@ async function start() {
   }
 }
 
-// Graceful shutdown
-process.on('SIGINT', async () => {
-  logger.info('Shutting down...');
+// Graceful shutdown handler
+async function shutdown(signal) {
+  logger.info(`Received ${signal}, shutting down gracefully...`);
   
   // Clear intervals
   if (global.ignoreListInterval) {
@@ -387,10 +421,32 @@ process.on('SIGINT', async () => {
   userRateLimiter.stopCleanup();
   
   // Disconnect services
-  discord.destroy();
-  await twitch.disconnect();
+  try {
+    discord.destroy();
+    await twitch.disconnect();
+    logger.info('All services disconnected successfully');
+  } catch (error) {
+    logger.error(`Error during shutdown: ${error.message}`);
+  }
   
   process.exit(0);
+}
+
+// Handle various shutdown signals
+process.on('SIGINT', () => shutdown('SIGINT'));  // Ctrl+C
+process.on('SIGTERM', () => shutdown('SIGTERM')); // Docker stop, Kubernetes pod termination
+process.on('SIGHUP', () => shutdown('SIGHUP'));   // Terminal closed
+process.on('SIGUSR2', () => shutdown('SIGUSR2')); // Sometimes used by process managers
+
+// Handle uncaught errors to prevent crashes
+process.on('uncaughtException', (error) => {
+  logger.error(`Uncaught exception: ${error.message}`, { stack: error.stack });
+  shutdown('uncaughtException');
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  logger.error('Unhandled rejection at:', promise, 'reason:', reason);
+  shutdown('unhandledRejection');
 });
 
 start();

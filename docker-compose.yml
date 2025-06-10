@@ -3,6 +3,7 @@ services:
     build: .
     container_name: livestream-monitor
     restart: unless-stopped
+    init: true
     environment:
       # Discord Configuration
       - DISCORD_TOKEN=${DISCORD_TOKEN}
@@ -22,6 +23,28 @@ services:
       # Rate limiting
       - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-60000}
       - RATE_LIMIT_MAX_REQUESTS=${RATE_LIMIT_MAX_REQUESTS:-10}
+      
+      # Sheet configuration (optional)
+      - SHEET_TAB_LIVESTREAMS=${SHEET_TAB_LIVESTREAMS:-Livestreams}
+      - SHEET_TAB_TWITCH_IGNORE=${SHEET_TAB_TWITCH_IGNORE:-Twitch User Ignorelist}
+      - SHEET_TAB_DISCORD_IGNORE=${SHEET_TAB_DISCORD_IGNORE:-Discord User Ignorelist}
+      - SHEET_TAB_URL_IGNORE=${SHEET_TAB_URL_IGNORE:-URL Ignorelist}
+      
+      # Column configuration (optional)
+      - COLUMN_PLATFORM=${COLUMN_PLATFORM:-Platform}
+      - COLUMN_STATUS=${COLUMN_STATUS:-Status}
+      - COLUMN_LINK=${COLUMN_LINK:-Link}
+      - COLUMN_ADDED_DATE=${COLUMN_ADDED_DATE:-Added Date}
+      - COLUMN_POSTED_BY=${COLUMN_POSTED_BY:-Posted By}
+      
+      # Other configuration (optional)
+      - STATUS_NEW_LINK=${STATUS_NEW_LINK:-Live}
+      - TIMEZONE=${TIMEZONE:-America/Los_Angeles}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      
+      # Confirmation settings (optional)
+      - DISCORD_CONFIRM_REACTION=${DISCORD_CONFIRM_REACTION:-true}
+      - TWITCH_CONFIRM_REPLY=${TWITCH_CONFIRM_REPLY:-true}
 
     volumes:
       - ./credentials.json:/app/credentials.json:ro

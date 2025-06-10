@@ -25,5 +25,32 @@ module.exports = {
   
   // Rate limiting
   RATE_LIMIT_WINDOW_MS: validatePositiveInt(process.env.RATE_LIMIT_WINDOW_MS, 60000, 1000), // 1 minute
-  RATE_LIMIT_MAX_REQUESTS: validatePositiveInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10)
+  RATE_LIMIT_MAX_REQUESTS: validatePositiveInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10),
+  
+  // Sheet configuration
+  SHEET_TAB_LIVESTREAMS: process.env.SHEET_TAB_LIVESTREAMS || 'Livestreams',
+  SHEET_TAB_TWITCH_IGNORE: process.env.SHEET_TAB_TWITCH_IGNORE || 'Twitch User Ignorelist',
+  SHEET_TAB_DISCORD_IGNORE: process.env.SHEET_TAB_DISCORD_IGNORE || 'Discord User Ignorelist',
+  SHEET_TAB_URL_IGNORE: process.env.SHEET_TAB_URL_IGNORE || 'URL Ignorelist',
+  
+  // Column names (for dynamic mapping)
+  COLUMN_PLATFORM: process.env.COLUMN_PLATFORM || 'Platform',
+  COLUMN_STATUS: process.env.COLUMN_STATUS || 'Status',
+  COLUMN_LINK: process.env.COLUMN_LINK || 'Link',
+  COLUMN_ADDED_DATE: process.env.COLUMN_ADDED_DATE || 'Added Date',
+  COLUMN_POSTED_BY: process.env.COLUMN_POSTED_BY || 'Posted By',
+  
+  // Status values
+  STATUS_NEW_LINK: process.env.STATUS_NEW_LINK || 'Live',
+  
+  // Time configuration
+  TIMEZONE: process.env.TIMEZONE || 'America/Los_Angeles',
+  
+  // Log configuration
+  LOG_LEVEL: process.env.LOG_LEVEL || 'info',
+  LOG_FILE: process.env.LOG_FILE || 'app.log',
+  
+  // Confirmation settings
+  DISCORD_CONFIRM_REACTION: process.env.DISCORD_CONFIRM_REACTION !== 'false', // Default true
+  TWITCH_CONFIRM_REPLY: process.env.TWITCH_CONFIRM_REPLY !== 'false' // Default true
 };

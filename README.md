@@ -72,15 +72,47 @@ A Node.js application that monitors Twitch chat and Discord channels for live st
 
 Edit the `.env` file with your configuration:
 
+### Required Configuration
+
 - `DISCORD_TOKEN`: Your Discord bot token
 - `DISCORD_CHANNEL_ID`: The Discord channel ID to monitor
 - `TWITCH_CHANNEL`: The Twitch channel name to monitor (without #)
 - `GOOGLE_SHEET_ID`: Your Google Sheet ID
+
+### Optional Configuration
+
+**File Paths**
 - `GOOGLE_CREDENTIALS_PATH`: Path to Google service account credentials (default: ./credentials.json)
-- `IGNORE_LIST_SYNC_INTERVAL`: How often to sync ignore lists from Google Sheets (default: 10000ms/10 seconds)
-- `EXISTING_URLS_SYNC_INTERVAL`: How often to sync existing URLs from sheet (default: 60000ms/1 minute)
-- `RATE_LIMIT_WINDOW_MS`: Rate limit time window (default: 60000ms/1 minute)
+
+**Sync Intervals**
+- `IGNORE_LIST_SYNC_INTERVAL`: How often to sync ignore lists (default: 10000ms)
+- `EXISTING_URLS_SYNC_INTERVAL`: How often to sync existing URLs (default: 60000ms)
+
+**Rate Limiting**
+- `RATE_LIMIT_WINDOW_MS`: Rate limit time window (default: 60000ms)
 - `RATE_LIMIT_MAX_REQUESTS`: Max requests per user per window (default: 10)
+
+**Sheet Tab Names**
+- `SHEET_TAB_LIVESTREAMS`: Main data tab name (default: "Livestreams")
+- `SHEET_TAB_TWITCH_IGNORE`: Twitch ignore list tab (default: "Twitch User Ignorelist")
+- `SHEET_TAB_DISCORD_IGNORE`: Discord ignore list tab (default: "Discord User Ignorelist")
+- `SHEET_TAB_URL_IGNORE`: URL ignore list tab (default: "URL Ignorelist")
+
+**Column Names**
+- `COLUMN_PLATFORM`: Platform column name (default: "Platform")
+- `COLUMN_STATUS`: Status column name (default: "Status")
+- `COLUMN_LINK`: Link column name (default: "Link")
+- `COLUMN_ADDED_DATE`: Added date column name (default: "Added Date")
+- `COLUMN_POSTED_BY`: Posted by column name (default: "Posted By")
+
+**Other Settings**
+- `STATUS_NEW_LINK`: Status value for new links (default: "Live")
+- `TIMEZONE`: Timezone for timestamps (default: "America/Los_Angeles")
+- `LOG_LEVEL`: Logging level (default: "info", options: error, warn, info, debug)
+
+**Confirmation Settings**
+- `DISCORD_CONFIRM_REACTION`: Add ✅ reaction to Discord messages (default: true, set to "false" to disable)
+- `TWITCH_CONFIRM_REPLY`: Reply with ✅ in Twitch chat (default: true, set to "false" to disable)
 
 ## Development
 

@@ -22,47 +22,56 @@ This is a Node.js monitoring application that watches Twitch chat and Discord ch
 
 ### Core Components
 
-1. **Message Monitoring** (index.js:229-298)
+1. **Message Monitoring** (index.js:272-364)
    - Discord.js client monitors specified Discord channel for messages
    - TMI.js client monitors specified Twitch channel chat
    - Both extract URLs using regex patterns for major streaming platforms
    - Implements rate limiting per user to prevent spam
-   - Processes URLs concurrently with configurable limits
+   - Sends confirmation feedback (Discord reaction, Twitch reply) when URLs are added
 
-2. **URL Processing Pipeline** (index.js:191-227)
+2. **URL Processing Pipeline** (index.js:234-269)
    - Validates URLs for security (lib/urlValidator.js)
    - Normalizes URLs to ensure proper protocol
    - Checks if URL already exists in Google Sheet
    - Detects platform (Twitch, YouTube, TikTok, Kick, Facebook)
    - Adds new URLs to Google Sheets
+   - Returns success/failure for confirmation feedback
 
-3. **Google Sheets Integration** (index.js:65-189)
+3. **Google Sheets Integration** (index.js:63-231)
    - Uses service account authentication via configurable path
-   - Appends rows with predefined column structure
-   - Reads and caches existing URLs from the "Livestreams" tab
-   - Reads ignore lists from three separate tabs:
-     - "Twitch User Ignorelist" - usernames to ignore from Twitch
-     - "Discord User Ignorelist" - usernames to ignore from Discord  
-     - "URL Ignorelist" - URLs to ignore from both platforms
+   - Dynamic column mapping - reads headers and maps by name
+   - Configurable tab names for all sheets
+   - Reads and caches existing URLs from configurable "Livestreams" tab
+   - Reads ignore lists from three configurable tabs
+   - All column names are configurable via environment variables
 
-4. **Deduplication System** (index.js:127-148)
+4. **Deduplication System** (index.js:145-189)
    - Fetches existing URLs from sheet on startup
+   - Uses dynamic column mapping to find Link column
    - Maintains in-memory cache of existing URLs
    - Syncs periodically based on EXISTING_URLS_SYNC_INTERVAL
    - Prevents duplicate entries in the sheet
 
-5. **Ignore List System** (index.js:65-126)
+5. **Ignore List System** (index.js:63-118)
    - Fetches ignore lists from Google Sheets on startup
    - Syncs periodically based on IGNORE_LIST_SYNC_INTERVAL
    - Normalizes values (trim whitespace, lowercase usernames, normalize URLs)
    - Filters messages before URL extraction and processing
    - Handles partial failures gracefully
 
-6. **Performance & Security Features**
+6. **Configuration System** (config.js)
+   - All hardcoded values extracted to environment variables
+   - Sheet tab names, column names, status values all configurable
+   - Timezone, log level, and file paths configurable
+   - Confirmation behaviors can be enabled/disabled
+   - Validation for numeric environment variables
+
+7. **Performance & Security Features**
    - **Rate Limiting** (lib/rateLimiter.js): Prevents spam abuse
    - **URL Validation** (lib/urlValidator.js): Blocks malicious URLs
-   - **Concurrent Processing**: Uses p-limit for controlled concurrency
    - **Health Checks**: Docker health monitoring
+   - **Graceful Shutdown**: Handles multiple signals properly
+   - **Resource Limits**: Docker configured with appropriate memory/CPU limits
 
 ### Configuration
 
@@ -79,15 +88,18 @@ The application runs in a Docker container based on Node.js Alpine image for a l
 
 ### Key Design Decisions
 
-1. **Deduplication First**: Checks existing URLs before adding to prevent duplicates
-2. **In-Memory Caching**: Maintains cache of existing URLs for fast lookups
-3. **Concurrent Processing**: Uses p-limit to control concurrent operations
-4. **Rate Limiting**: Prevents spam abuse with configurable per-user limits
-5. **Platform-Agnostic URL Extraction**: Single regex pattern array handles all platforms
-6. **Modular Design**: Separated concerns into lib/ modules for maintainability
-7. **Security First**: URL validation, runs as non-root user in Docker
-8. **Structured Logging**: Winston logger with file and console output
-9. **Graceful Shutdown**: Proper cleanup of all resources and intervals
+1. **Simplified Architecture**: No browser automation - just collect and record URLs
+2. **Dynamic Column Mapping**: Reads sheet headers to handle column reordering
+3. **Comprehensive Configuration**: All values configurable via environment variables
+4. **Deduplication First**: Checks existing URLs before adding to prevent duplicates
+5. **In-Memory Caching**: Maintains caches for performance (URLs, column mapping)
+6. **User Feedback**: Context-appropriate confirmations (Discord reactions, Twitch replies)
+7. **Rate Limiting**: Prevents spam abuse with configurable per-user limits
+8. **Platform-Agnostic URL Extraction**: Single regex pattern array handles all platforms
+9. **Modular Design**: Separated concerns into lib/ modules for maintainability
+10. **Security First**: URL validation, runs as non-root user in Docker
+11. **Structured Logging**: Winston logger with configurable level and file output
+12. **Graceful Shutdown**: Handles SIGINT, SIGTERM, SIGHUP, uncaught exceptions
 
 ### Adding New Platforms
 
