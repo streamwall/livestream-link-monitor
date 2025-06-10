@@ -1,4 +1,12 @@
 // config.js
+function validatePositiveInt(value, defaultValue, minValue = 1) {
+  const parsed = parseInt(value);
+  if (isNaN(parsed) || parsed < minValue) {
+    return defaultValue;
+  }
+  return parsed;
+}
+
 module.exports = {
   // Discord Configuration
   DISCORD_TOKEN: process.env.DISCORD_TOKEN || '',
@@ -9,8 +17,17 @@ module.exports = {
 
   // Google Sheets Configuration
   GOOGLE_SHEET_ID: process.env.GOOGLE_SHEET_ID || '',
+  GOOGLE_CREDENTIALS_PATH: process.env.GOOGLE_CREDENTIALS_PATH || './credentials.json',
 
   // Optional Configuration
-  CHECK_INTERVAL: parseInt(process.env.CHECK_INTERVAL) || 60000, // Re-check interval in ms
-  MAX_CONCURRENT_CHECKS: parseInt(process.env.MAX_CONCURRENT_CHECKS) || 3
+  CHECK_INTERVAL: validatePositiveInt(process.env.CHECK_INTERVAL, 60000, 1000), // Re-check interval in ms
+  MAX_CONCURRENT_CHECKS: validatePositiveInt(process.env.MAX_CONCURRENT_CHECKS, 3),
+  IGNORE_LIST_SYNC_INTERVAL: validatePositiveInt(process.env.IGNORE_LIST_SYNC_INTERVAL, 10000, 1000), // Sync ignore lists every 10 seconds by default
+  
+  // Rate limiting
+  RATE_LIMIT_WINDOW_MS: validatePositiveInt(process.env.RATE_LIMIT_WINDOW_MS, 60000, 1000), // 1 minute
+  RATE_LIMIT_MAX_REQUESTS: validatePositiveInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10),
+  
+  // Browser pool
+  MAX_BROWSERS: validatePositiveInt(process.env.MAX_BROWSERS, 3)
 };

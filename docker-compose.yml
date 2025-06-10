@@ -13,10 +13,19 @@ services:
 
       # Google Sheets Configuration
       - GOOGLE_SHEET_ID=${GOOGLE_SHEET_ID}
+      - GOOGLE_CREDENTIALS_PATH=/app/credentials.json
 
       # Optional Configuration
       - CHECK_INTERVAL=${CHECK_INTERVAL:-60000}
       - MAX_CONCURRENT_CHECKS=${MAX_CONCURRENT_CHECKS:-3}
+      - IGNORE_LIST_SYNC_INTERVAL=${IGNORE_LIST_SYNC_INTERVAL:-10000}
+      
+      # Rate limiting
+      - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-60000}
+      - RATE_LIMIT_MAX_REQUESTS=${RATE_LIMIT_MAX_REQUESTS:-10}
+      
+      # Browser pool
+      - MAX_BROWSERS=${MAX_BROWSERS:-3}
 
       # Playwright Configuration
       - PLAYWRIGHT_BROWSERS_PATH=/ms-playwright
@@ -27,14 +36,26 @@ services:
       - ./.env:/app/.env:ro
       - ./index.js:/app/index.js:ro
       - ./config.js:/app/config.js:ro
+      - ./lib:/app/lib:ro
 
-    # Required for Playwright
-    cap_add:
-      - SYS_ADMIN
+    # Security
+    security_opt:
+      - no-new-privileges:true
 
-    # Resource limits
-    mem_limit: 2g
-    cpus: '1.0'
+    # Resource limits (compose v3+ syntax)
+    deploy:
+      resources:
+        limits:
+          memory: 2g
+          cpus: '1.0'
+          
+    # Health check
+    healthcheck:
+      test: ["CMD", "pgrep", "-x", "node"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
     # Logging
     logging:

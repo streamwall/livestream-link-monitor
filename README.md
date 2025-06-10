@@ -14,8 +14,14 @@ A Node.js application that monitors Twitch chat and Discord channels for live st
   - Facebook
 - Uses Playwright to verify if streams are actually live
 - Automatically adds live streams to Google Sheets
+- Configurable ignore lists for users and URLs synced from Google Sheets
+- Rate limiting to prevent spam abuse
+- Browser pooling for efficient resource usage
+- Concurrent URL processing with configurable limits
+- URL validation for security
 - Dockerized for easy deployment
-- Comprehensive logging
+- Comprehensive logging with Winston
+- Health checks for container monitoring
 
 ## Prerequisites
 
@@ -35,6 +41,10 @@ A Node.js application that monitors Twitch chat and Discord channels for live st
      ```
      Source | City | State | Platform | Status | Link | Notes | Title | Added Date | Last Checked (PST) | Last Live (PST) | Embed Link | Posted By | Orientation | Status Link
      ```
+   - Create three additional tabs for ignore lists:
+     - **"Twitch User Ignorelist"** - Column A header: "Username"
+     - **"Discord User Ignorelist"** - Column A header: "Username"
+     - **"URL Ignorelist"** - Column A header: "URL"
    - Get the Sheet ID from the URL
 
 ## Setup
@@ -67,8 +77,13 @@ Edit the `.env` file with your configuration:
 - `DISCORD_CHANNEL_ID`: The Discord channel ID to monitor
 - `TWITCH_CHANNEL`: The Twitch channel name to monitor (without #)
 - `GOOGLE_SHEET_ID`: Your Google Sheet ID
-- `CHECK_INTERVAL`: How often to re-check URLs (in milliseconds)
-- `MAX_CONCURRENT_CHECKS`: Maximum concurrent browser instances
+- `GOOGLE_CREDENTIALS_PATH`: Path to Google service account credentials (default: ./credentials.json)
+- `CHECK_INTERVAL`: How often to re-check URLs (in milliseconds, default: 60000)
+- `MAX_CONCURRENT_CHECKS`: Maximum concurrent URL checks (default: 3)
+- `IGNORE_LIST_SYNC_INTERVAL`: How often to sync ignore lists from Google Sheets (default: 10000ms/10 seconds)
+- `RATE_LIMIT_WINDOW_MS`: Rate limit time window (default: 60000ms/1 minute)
+- `RATE_LIMIT_MAX_REQUESTS`: Max requests per user per window (default: 10)
+- `MAX_BROWSERS`: Maximum browser instances in pool (default: 3)
 
 ## Development
 
@@ -111,6 +126,16 @@ To run locally without Docker:
    - The Docker image includes all necessary dependencies
    - If running locally, ensure Chromium is installed
    - Check memory limits if browser crashes occur
+
+## Ignore Lists
+
+The application supports ignore lists for filtering out specific users and URLs:
+
+- **Twitch User Ignorelist**: Usernames listed here will have their Twitch messages ignored
+- **Discord User Ignorelist**: Usernames listed here will have their Discord messages ignored  
+- **URL Ignorelist**: URLs listed here will be ignored from both platforms
+
+Add entries to the respective Google Sheets tabs. The lists are automatically synced at the configured interval.
 
 ## Adding New Platforms
 

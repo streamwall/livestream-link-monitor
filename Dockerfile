@@ -4,23 +4,33 @@ FROM mcr.microsoft.com/playwright:v1.42.0-focal
 # Set working directory
 WORKDIR /app
 
+# Create non-root user first
+RUN groupadd -r appuser && useradd -r -g appuser appuser
+
 # Install Node.js dependencies
 COPY package*.json ./
-RUN npm install
+RUN npm ci --only=production
 
-# Install Playwright browsers
-RUN npx playwright install chromium
+# Install Playwright browsers (already included in base image)
+# RUN npx playwright install chromium
+
+# Create necessary directories
+RUN mkdir -p /app/logs /app/lib
 
 # Copy application files
-COPY . .
+COPY --chown=appuser:appuser index.js config.js ./
+COPY --chown=appuser:appuser lib ./lib/
 
-# Create directory for logs
-RUN mkdir -p /app/logs
+# Set correct permissions
+RUN chmod -R 755 /app && \
+    chown -R appuser:appuser /app
 
-# Run as non-root user
-RUN groupadd -r appuser && useradd -r -g appuser appuser
-RUN chown -R appuser:appuser /app
+# Switch to non-root user
 USER appuser
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+  CMD pgrep -x node || exit 1
 
 # Start the application
 CMD ["node", "index.js"]

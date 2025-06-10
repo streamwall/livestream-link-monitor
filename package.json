@@ -21,7 +21,8 @@
     "googleapis": "^150.0.1",
     "playwright": "^1.52.0",
     "winston": "^3.17.0",
-    "dotenv": "^16.5.0"
+    "dotenv": "^16.5.0",
+    "p-limit": "^3.1.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"

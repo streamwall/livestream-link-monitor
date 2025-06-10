@@ -2,9 +2,14 @@
 const { Client, GatewayIntentBits } = require('discord.js');
 const tmi = require('tmi.js');
 const { google } = require('googleapis');
-const { chromium } = require('playwright');
 const winston = require('winston');
+const pLimit = require('p-limit');
 const config = require('./config');
+const BrowserPool = require('./lib/browserPool');
+const RateLimiter = require('./lib/rateLimiter');
+const { validateStreamingUrl } = require('./lib/urlValidator');
+const { extractStreamingUrls, normalizeUrl, detectPlatform } = require('./lib/platformDetector');
+const { checkLiveStatus } = require('./lib/liveChecker');
 
 const delay = ms => new Promise(r => setTimeout(r, ms));
 
@@ -23,7 +28,7 @@ const logger = winston.createLogger({
 
 // Google Sheets setup
 const auth = new google.auth.GoogleAuth({
-  keyFile: './credentials.json',
+  keyFile: config.GOOGLE_CREDENTIALS_PATH,
   scopes: ['https://www.googleapis.com/auth/spreadsheets']
 });
 
@@ -32,6 +37,7 @@ const sheets = google.sheets({ version: 'v4', auth });
 // Discord client setup
 const discord = new Client({
   intents: [
+    GatewayIntentBits.Guilds,
     GatewayIntentBits.MessageContent
   ]
 });
@@ -41,111 +47,111 @@ const twitch = new tmi.Client({
   channels: [config.TWITCH_CHANNEL]
 });
 
-// URL patterns for streaming platforms
-const streamingPatterns = [
-  /(?:https?:\/\/)?(?:www\.)?twitch\.tv\/\S+/gi,
-  /(?:https?:\/\/)?(?:www\.)?tiktok\.com\/\S+/gi,
-  /(?:https?:\/\/)?(?:www\.)?youtube\.com\/(?:watch\?v=|live\/)\S+/gi,
-  /(?:https?:\/\/)?(?:www\.)?youtu\.be\/\S+/gi,
-  /(?:https?:\/\/)?(?:www\.)?kick\.com\/\S+/gi,
-  /(?:https?:\/\/)?(?:www\.)?facebook\.com\/(?:watch|live)\S+/gi,
-  /(?:https?:\/\/)?(?:www\.)?fb\.watch\/\S+/gi
-];
+// Ignore lists
+let twitchUserIgnoreList = new Set();
+let discordUserIgnoreList = new Set();
+let urlIgnoreList = new Set();
 
-// Extract URLs from message
-function extractStreamingUrls(message) {
-  const urls = [];
-  for (const pattern of streamingPatterns) {
-    const matches = message.match(pattern) || [];
-    urls.push(...matches);
+// Browser pool
+const browserPool = new BrowserPool({ 
+  maxBrowsers: config.MAX_BROWSERS,
+  logger 
+});
+
+// Rate limiters
+const userRateLimiter = new RateLimiter({
+  windowMs: config.RATE_LIMIT_WINDOW_MS,
+  maxRequests: config.RATE_LIMIT_MAX_REQUESTS
+});
+
+// Concurrency limiter
+const processLimit = pLimit(config.MAX_CONCURRENT_CHECKS);
+
+// Fetch ignore lists from Google Sheets
+async function fetchIgnoreLists() {
+  logger.info('Fetching ignore lists from Google Sheets');
+  
+  // Fetch each list independently to handle partial failures
+  try {
+    const twitchResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: config.GOOGLE_SHEET_ID,
+      range: 'Twitch User Ignorelist!A2:A' // Skip header row
+    });
+    
+    twitchUserIgnoreList = new Set(
+      (twitchResponse.data.values || [])
+        .map(row => row[0]?.trim()?.toLowerCase())
+        .filter(Boolean)
+    );
+    logger.info(`Loaded ${twitchUserIgnoreList.size} Twitch users to ignore list`);
+  } catch (error) {
+    logger.error(`Failed to fetch Twitch ignore list: ${error.message}`);
   }
-  return [...new Set(urls)]; // Remove duplicates
-}
-
-// Normalize URL
-function normalizeUrl(url) {
-  if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    return 'https://' + url;
+  
+  try {
+    const discordResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: config.GOOGLE_SHEET_ID,
+      range: 'Discord User Ignorelist!A2:A' // Skip header row
+    });
+    
+    discordUserIgnoreList = new Set(
+      (discordResponse.data.values || [])
+        .map(row => row[0]?.trim()?.toLowerCase())
+        .filter(Boolean)
+    );
+    logger.info(`Loaded ${discordUserIgnoreList.size} Discord users to ignore list`);
+  } catch (error) {
+    logger.error(`Failed to fetch Discord ignore list: ${error.message}`);
   }
-  return url;
+  
+  try {
+    const urlResponse = await sheets.spreadsheets.values.get({
+      spreadsheetId: config.GOOGLE_SHEET_ID,
+      range: 'URL Ignorelist!A2:A' // Skip header row
+    });
+    
+    urlIgnoreList = new Set(
+      (urlResponse.data.values || [])
+        .map(row => {
+          const url = row[0]?.trim();
+          return url ? normalizeUrl(url) : null;
+        })
+        .filter(Boolean)
+    );
+    logger.info(`Loaded ${urlIgnoreList.size} URLs to ignore list`);
+  } catch (error) {
+    logger.error(`Failed to fetch URL ignore list: ${error.message}`);
+  }
 }
 
-// Detect platform from URL
-function detectPlatform(url) {
-  if (url.includes('twitch.tv')) return 'Twitch';
-  if (url.includes('tiktok.com')) return 'TikTok';
-  if (url.includes('youtube.com') || url.includes('youtu.be')) return 'YouTube';
-  if (url.includes('kick.com')) return 'Kick';
-  if (url.includes('facebook.com') || url.includes('fb.watch')) return 'Facebook';
-  return 'Unknown';
-}
 
 // Check if URL is a live stream using Playwright
 async function isLiveStream(url) {
-  let browser;
-  try {
-    browser = await chromium.launch({
-      headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox']
-    });
-
+  return browserPool.withBrowser(async (browser) => {
     const context = await browser.newContext({
-      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     });
 
-    const page = await context.newPage();
-    logger.info(`Checking URL: ${url}`);
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+    try {
+      const page = await context.newPage();
+      logger.info(`Checking URL: ${url}`);
+      await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 30000 });
 
-    const platform = detectPlatform(url);
-    let isLive = false;
-    let title = '';
+      const platform = detectPlatform(url);
+      logger.info(`Detected platform: ${platform}`);
 
-    logger.info(`Detected platform: ${platform}`);
+      const { isLive, title } = await checkLiveStatus(page, platform);
 
-    switch (platform) {
-      case 'Twitch':
-        isLive = await page.locator('[data-a-target="stream-indicator"]').count() > 0 ||
-                 await page.locator('.live-indicator').count() > 0;
-        title = await page.locator('h1').first().textContent().catch(() => '');
-        break;
+      logger.info(`Is live: ${isLive}, Title: ${title}`);
+      return { isLive, title };
 
-      case 'YouTube':
-        isLive = await page.locator('.ytp-live-badge').count() > 0 ||
-                 await page.locator('[aria-label*="LIVE"]').count() > 0;
-        title = await page.locator('h1.ytd-video-primary-info-renderer').textContent().catch(() => '');
-        break;
-
-      case 'TikTok':
-        delay(3000); // Wait for TikTok to load
-        const html = await page.content();
-        const viewerIconVisible = await page.locator('svg[aria-label*="viewer"] ~ span').first().isVisible();
-        isLive = viewerIconVisible || html.includes('"isLiveBroadcast":true')
-        title = await page.locator('h2[data-e2e="user-profile-uid"]').textContent().catch(() => '');
-        break;
-
-      case 'Kick':
-        isLive = await page.locator('.stream-status-live').count() > 0;
-        title = await page.locator('.stream-title').textContent().catch(() => '');
-        break;
-
-      case 'Facebook':
-        isLive = await page.locator('[aria-label*="LIVE"]').count() > 0 ||
-                 await page.locator('.live-indicator').count() > 0;
-        title = await page.locator('h2').first().textContent().catch(() => '');
-        break;
+    } catch (error) {
+      logger.error(`Error checking if live: ${error.message}`);
+      return { isLive: false, title: '' };
+    } finally {
+      await context.close();
     }
-
-    logger.info(`Is live: ${isLive}, Title: ${title}`);
-
-    await browser.close();
-    return { isLive, title: title.trim() };
-
-  } catch (error) {
-    logger.error(`Error checking if live: ${error.message}`);
-    if (browser) await browser.close();
-    return { isLive: false, title: '' };
-  }
+  });
 }
 
 // Add row to Google Sheet
@@ -174,12 +180,12 @@ async function addToSheet(data) {
     console.log(`Adding to sheet: ${data.link}`);
     console.log(`Values: ${JSON.stringify(values)}`);
 
-    // await sheets.spreadsheets.values.append({
-    //   spreadsheetId: config.GOOGLE_SHEET_ID,
-    //   range: 'Livestreams!A:O',
-    //   valueInputOption: 'USER_ENTERED',
-    //   requestBody: { values }
-    // });
+    await sheets.spreadsheets.values.append({
+      spreadsheetId: config.GOOGLE_SHEET_ID,
+      range: 'Livestreams!A:O',
+      valueInputOption: 'USER_ENTERED',
+      requestBody: { values }
+    });
 
     logger.info(`Added to sheet: ${data.link}`);
   } catch (error) {
@@ -191,6 +197,14 @@ async function addToSheet(data) {
 async function processUrl(url, source, postedBy) {
   try {
     const normalizedUrl = normalizeUrl(url);
+    
+    // Validate URL
+    const validation = validateStreamingUrl(normalizedUrl);
+    if (!validation.valid) {
+      logger.warn(`Invalid URL rejected: ${normalizedUrl} - ${validation.reason}`);
+      return;
+    }
+    
     const platform = detectPlatform(normalizedUrl);
 
     logger.info(`Checking URL: ${normalizedUrl} from ${source}`);
@@ -218,28 +232,89 @@ async function processUrl(url, source, postedBy) {
 discord.on('messageCreate', async (message) => {
   logger.info(`Received Discord message from ${message.author.username}: ${message.content}`);
   if (message.author.bot) return;
+  
+  // Check if user is in ignore list
+  if (discordUserIgnoreList.has(message.author.username.toLowerCase())) {
+    logger.info(`Ignoring message from Discord user: ${message.author.username}`);
+    return;
+  }
+  
+  // Check rate limit
+  if (!userRateLimiter.isAllowed(`discord:${message.author.id}`)) {
+    logger.warn(`Rate limit exceeded for Discord user: ${message.author.username}`);
+    return;
+  }
 
   if (message.channelId === config.DISCORD_CHANNEL_ID) {
     const urls = extractStreamingUrls(message.content);
-    for (const url of urls) {
-      await processUrl(url, 'Discord', message.author.username);
-    }
+    
+    // Process URLs concurrently with limit
+    await Promise.all(
+      urls.map(url => {
+        const normalizedUrl = normalizeUrl(url);
+        
+        // Check if URL is in ignore list
+        if (urlIgnoreList.has(normalizedUrl)) {
+          logger.info(`Ignoring URL from ignore list: ${normalizedUrl}`);
+          return Promise.resolve();
+        }
+        
+        return processLimit(() => processUrl(url, 'Discord', message.author.username));
+      })
+    );
   }
 });
 
 // Twitch message handler
 twitch.on('message', async (channel, tags, message, self) => {
   if (self) return;
+  
+  // Check if user is in ignore list
+  if (twitchUserIgnoreList.has(tags.username.toLowerCase())) {
+    logger.info(`Ignoring message from Twitch user: ${tags.username}`);
+    return;
+  }
+  
+  // Check rate limit
+  if (!userRateLimiter.isAllowed(`twitch:${tags['user-id']}`)) {
+    logger.warn(`Rate limit exceeded for Twitch user: ${tags.username}`);
+    return;
+  }
 
   const urls = extractStreamingUrls(message);
-  for (const url of urls) {
-    await processUrl(url, 'Twitch', tags.username);
-  }
+  
+  // Process URLs concurrently with limit
+  await Promise.all(
+    urls.map(url => {
+      const normalizedUrl = normalizeUrl(url);
+      
+      // Check if URL is in ignore list
+      if (urlIgnoreList.has(normalizedUrl)) {
+        logger.info(`Ignoring URL from ignore list: ${normalizedUrl}`);
+        return Promise.resolve();
+      }
+      
+      return processLimit(() => processUrl(url, 'Twitch', tags.username));
+    })
+  );
 });
 
 // Start the application
 async function start() {
   try {
+    // Initialize browser pool
+    await browserPool.initialize();
+    
+    // Start rate limiter cleanup
+    userRateLimiter.startCleanup();
+    
+    // Initial fetch of ignore lists
+    await fetchIgnoreLists();
+    
+    // Set up periodic sync of ignore lists
+    const ignoreListInterval = setInterval(fetchIgnoreLists, config.IGNORE_LIST_SYNC_INTERVAL);
+    logger.info(`Ignore lists will be synced every ${config.IGNORE_LIST_SYNC_INTERVAL / 1000} seconds`);
+    
     // Connect Discord
     await discord.login(config.DISCORD_TOKEN);
     logger.info('Discord bot connected');
@@ -249,6 +324,9 @@ async function start() {
     logger.info('Twitch bot connected');
 
     logger.info('Application started successfully');
+    
+    // Store interval for cleanup
+    global.ignoreListInterval = ignoreListInterval;
   } catch (error) {
     logger.error(`Failed to start application: ${error.message}`);
     process.exit(1);
@@ -258,8 +336,22 @@ async function start() {
 // Graceful shutdown
 process.on('SIGINT', async () => {
   logger.info('Shutting down...');
+  
+  // Clear intervals
+  if (global.ignoreListInterval) {
+    clearInterval(global.ignoreListInterval);
+  }
+  
+  // Stop rate limiter cleanup
+  userRateLimiter.stopCleanup();
+  
+  // Disconnect services
   discord.destroy();
   await twitch.disconnect();
+  
+  // Shutdown browser pool
+  await browserPool.shutdown();
+  
   process.exit(0);
 });
 
