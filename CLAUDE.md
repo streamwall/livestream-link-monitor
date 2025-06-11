@@ -8,13 +8,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm install` - Install dependencies
 - `npm start` - Run the application
 - `npm run dev` - Run with nodemon for auto-restart on changes
-- `npx playwright install chromium` - Install Playwright browsers (required for local development)
 
 ### Docker Deployment
-- `docker-compose up -d` - Build and run the application in detached mode
-- `docker-compose logs -f` - View live logs
-- `docker-compose down` - Stop the application
-- `docker-compose build --no-cache` - Rebuild the Docker image
+- `docker compose up -d` - Build and run the application in detached mode
+- `docker compose logs -f` - View live logs
+- `docker compose down` - Stop the application
+- `docker compose build --no-cache` - Rebuild the Docker image
 
 ## Architecture
 

@@ -9,7 +9,7 @@ const fs = require('fs');
 const config = require('./config');
 const RateLimiter = require('./lib/rateLimiter');
 const { validateStreamingUrl } = require('./lib/urlValidator');
-const { extractStreamingUrls, normalizeUrl, detectPlatform, extractUsername } = require('./lib/platformDetector');
+const { extractStreamingUrls, normalizeUrl, resolveTikTokUrl, detectPlatform, extractUsername } = require('./lib/platformDetector');
 const { loadCitiesIntoCache, parseLocation, getCacheInfo } = require('./lib/locationParser');
 
 // Logger setup
@@ -142,15 +142,15 @@ async function fetchIgnoreLists() {
 async function fetchKnownCities() {
   try {
     logger.info('Fetching known cities from Google Sheets');
-    
+
     const response = await sheets.spreadsheets.values.get({
       spreadsheetId: config.GOOGLE_SHEET_ID,
       range: `${config.SHEET_TAB_KNOWN_CITIES}!A2:B` // Skip header row, get columns A (City) and B (State)
     });
-    
+
     const cities = response.data.values || [];
     loadCitiesIntoCache(cities);
-    
+
     const cacheInfo = getCacheInfo();
     logger.info(`Loaded ${cacheInfo.size} known cities into location parser cache`);
   } catch (error) {
@@ -281,7 +281,16 @@ async function addToSheet(data) {
 // Process URLs
 async function processUrl(url, source, postedBy, messageContent = '') {
   try {
-    const normalizedUrl = normalizeUrl(url);
+    let normalizedUrl = normalizeUrl(url);
+
+    // Resolve TikTok redirect URLs to their canonical form
+    if (normalizedUrl.includes('tiktok.com/t/')) {
+      const resolvedUrl = await resolveTikTokUrl(normalizedUrl);
+      if (resolvedUrl !== normalizedUrl) {
+        logger.info(`Resolved TikTok redirect: ${normalizedUrl} -> ${resolvedUrl}`);
+        normalizedUrl = resolvedUrl;
+      }
+    }
 
     // Validate URL
     const validation = validateStreamingUrl(normalizedUrl);
@@ -303,7 +312,7 @@ async function processUrl(url, source, postedBy, messageContent = '') {
     const locationInfo = parseLocation(messageContent);
     const city = locationInfo?.city || '';
     const state = locationInfo?.state || '';
-    
+
     if (locationInfo) {
       logger.info(`Detected location: ${city}, ${state}`);
     }
@@ -355,6 +364,12 @@ discord.on('messageCreate', async (message) => {
     }
 
     if (message.channelId === config.DISCORD_CHANNEL_ID) {
+      // Validate message length to prevent processing extremely long messages
+      if (message.content.length > 2000) {
+        logger.warn(`Message from ${message.author.username} too long (${message.content.length} chars), skipping`);
+        return;
+      }
+      
       logger.info(`Received Discord message from ${message.author.username}: ${message.content}`);
       const urls = extractStreamingUrls(message.content);
       let anyUrlAdded = false;
@@ -385,7 +400,7 @@ discord.on('messageCreate', async (message) => {
         try {
           let reaction = null;
           let reactionType = null;
-          
+
           if (anyUrlAdded) {
             reaction = '✅';
             reactionType = 'checkmark';
@@ -396,7 +411,7 @@ discord.on('messageCreate', async (message) => {
             reaction = '🔁';
             reactionType = 'duplicate';
           }
-          
+
           if (reaction) {
             await message.react(reaction);
             logger.info(`Added ${reactionType} reaction to Discord message from ${message.author.username}`);
@@ -428,6 +443,12 @@ twitch.on('message', async (channel, tags, message, self) => {
       return;
     }
 
+    // Validate message length
+    if (message.length > 500) {
+      logger.warn(`Twitch message from ${tags.username} too long (${message.length} chars), skipping`);
+      return;
+    }
+    
     const urls = extractStreamingUrls(message);
     let anyUrlAdded = false;
     let anyDuplicate = false;
@@ -457,7 +478,7 @@ twitch.on('message', async (channel, tags, message, self) => {
       try {
         let replyEmoji = '';
         let replyType = '';
-        
+
         if (anyUrlAdded) {
           replyEmoji = '✅';
           replyType = 'checkmark';
@@ -468,7 +489,7 @@ twitch.on('message', async (channel, tags, message, self) => {
           replyEmoji = '🔁';
           replyType = 'duplicate';
         }
-        
+
         if (replyEmoji) {
           await twitch.say(channel, `@${tags.username} ${replyEmoji}`);
           logger.info(`Sent ${replyType} reply to Twitch user ${tags.username}`);
@@ -497,7 +518,7 @@ async function start() {
 
     // Initial fetch of column mapping first (needed for other fetches)
     await fetchColumnMapping();
-    
+
     // Fetch other data in parallel for faster startup
     await Promise.all([
       fetchIgnoreLists(),
