@@ -9,7 +9,7 @@ RUN addgroup -g 1001 -S appuser && adduser -S -u 1001 -G appuser appuser
 
 # Install Node.js dependencies
 COPY package*.json ./
-RUN npm ci --only=production
+RUN npm install
 
 # Create necessary directories
 RUN mkdir -p /app/logs /app/lib
