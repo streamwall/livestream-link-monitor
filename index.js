@@ -11,6 +11,7 @@ const RateLimiter = require('./lib/rateLimiter');
 const { validateStreamingUrl } = require('./lib/urlValidator');
 const { extractStreamingUrls, normalizeUrl, resolveTikTokUrl, detectPlatform, extractUsername } = require('./lib/platformDetector');
 const { loadCitiesIntoCache, parseLocation, getCacheInfo } = require('./lib/locationParser');
+const StreamSourceClient = require('./lib/streamSourceClient');
 
 // Logger setup
 const logger = winston.createLogger({
@@ -52,8 +53,8 @@ let twitchUserIgnoreList = new Set();
 let discordUserIgnoreList = new Set();
 let urlIgnoreList = new Set();
 
-// Existing URLs cache
-let existingUrlsCache = new Set();
+// StreamSource API client
+let streamSourceClient = null;
 
 // Column mapping cache
 let columnMapping = {};
@@ -61,7 +62,9 @@ let columnMapping = {};
 // Known cities cache update interval
 let knownCitiesInterval = null;
 
-// Simple mutex for cache operations
+// Simple mutex for cache operations - DEPRECATED: Not needed with StreamSource
+// Kept for potential future use
+/*
 let cacheUpdateInProgress = false;
 const cacheMutex = {
   async acquire() {
@@ -74,6 +77,7 @@ const cacheMutex = {
     cacheUpdateInProgress = false;
   }
 };
+*/
 
 // Rate limiters
 const userRateLimiter = new RateLimiter({
@@ -182,7 +186,9 @@ async function fetchColumnMapping() {
   }
 }
 
-// Fetch existing URLs from Google Sheets
+// Fetch existing URLs from Google Sheets - DEPRECATED: Now using StreamSource for deduplication
+// Kept for reference but not used
+/*
 async function fetchExistingUrls() {
   await cacheMutex.acquire();
   try {
@@ -225,61 +231,46 @@ async function fetchExistingUrls() {
     cacheMutex.release();
   }
 }
+*/
 
-// Check if URL already exists in sheet
+// Check if URL already exists in sheet - DEPRECATED: Now using StreamSource
+// Kept for reference but not used
+/*
 function isUrlInSheet(url) {
   const normalizedUrl = normalizeUrl(url);
   return existingUrlsCache.has(normalizedUrl);
 }
+*/
 
-// Add row to Google Sheet
-async function addToSheet(data) {
+// Add stream to StreamSource
+async function addToStreamSource(data) {
   try {
-    const timestamp = new Date().toISOString();
-
-    // Create an empty row array based on the number of columns
-    const maxColumn = Math.max(...Object.values(columnMapping)) + 1;
-    const rowValues = new Array(maxColumn).fill('');
-
-    // Map the data to the correct columns
-    const setColumnValue = (columnName, value) => {
-      const index = columnMapping[columnName.toLowerCase()];
-      if (index !== undefined) {
-        rowValues[index] = value;
-      } else {
-        logger.warn(`Column "${columnName}" not found in sheet headers`);
-      }
+    const streamData = {
+      url: data.link,
+      platform: data.platform,
+      source: data.source, // Username extracted from URL
+      city: data.city,
+      state: data.state,
+      postedBy: data.postedBy,
     };
 
-    // Set the values we want to add
-    setColumnValue(config.COLUMN_SOURCE, data.source || '');
-    setColumnValue(config.COLUMN_PLATFORM, data.platform || '');
-    setColumnValue(config.COLUMN_STATUS, config.STATUS_NEW_LINK);
-    setColumnValue(config.COLUMN_LINK, data.link || '');
-    setColumnValue(config.COLUMN_ADDED_DATE, timestamp);
-    setColumnValue(config.COLUMN_POSTED_BY, data.postedBy || '');
-    setColumnValue(config.COLUMN_CITY, data.city || '');
-    setColumnValue(config.COLUMN_STATE, data.state || '');
+    const result = await streamSourceClient.createStream(streamData);
 
-    logger.debug(`Adding to sheet: ${data.link}`);
-    logger.debug(`Row values: ${JSON.stringify(rowValues)}`);
+    if (result.exists) {
+      logger.info(`Stream already exists in StreamSource: ${data.link}`);
+      return { success: false, reason: 'duplicate' };
+    }
 
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: config.GOOGLE_SHEET_ID,
-      range: `${config.SHEET_TAB_LIVESTREAMS}!A:A`, // Always append to column A to ensure rows start from the first column
-      valueInputOption: 'USER_ENTERED',
-      insertDataOption: 'INSERT_ROWS',
-      requestBody: { values: [rowValues] }
-    });
-
-    logger.info(`Added to sheet: ${data.link}`);
+    logger.info(`Added to StreamSource: ${data.link} (ID: ${result.id})`);
+    return { success: true };
   } catch (error) {
-    logger.error(`Error adding to sheet: ${error.message}`);
+    logger.error(`Error adding to StreamSource: ${error.message}`);
+    return { success: false, reason: 'error' };
   }
 }
 
 // Process URLs
-async function processUrl(url, source, postedBy, messageContent = '') {
+async function processUrl(url, source, postedBy, messageContent = '', messageSource = 'Discord') {
   try {
     let normalizedUrl = normalizeUrl(url);
 
@@ -299,9 +290,10 @@ async function processUrl(url, source, postedBy, messageContent = '') {
       return { success: false, reason: 'invalid' };
     }
 
-    // Check if URL is already in the sheet
-    if (isUrlInSheet(normalizedUrl)) {
-      logger.info(`URL already exists in sheet: ${normalizedUrl}`);
+    // Check if URL already exists in StreamSource
+    const exists = await streamSourceClient.streamExists(normalizedUrl);
+    if (exists) {
+      logger.info(`URL already exists in StreamSource: ${normalizedUrl}`);
       return { success: false, reason: 'duplicate' };
     }
 
@@ -319,7 +311,7 @@ async function processUrl(url, source, postedBy, messageContent = '') {
 
     logger.info(`Adding new URL: ${normalizedUrl} from ${source}`);
 
-    await addToSheet({
+    const result = await addToStreamSource({
       platform: platform,
       link: normalizedUrl,
       postedBy: postedBy,
@@ -328,15 +320,7 @@ async function processUrl(url, source, postedBy, messageContent = '') {
       state: state
     });
 
-    // Add to cache to prevent immediate re-processing
-    await cacheMutex.acquire();
-    try {
-      existingUrlsCache.add(normalizedUrl);
-    } finally {
-      cacheMutex.release();
-    }
-
-    return { success: true }; // Successfully added
+    return result;
   } catch (error) {
     logger.error(`Error processing URL: ${error.message}`);
     return { success: false, reason: 'error' };
@@ -369,7 +353,7 @@ discord.on('messageCreate', async (message) => {
         logger.warn(`Message from ${message.author.username} too long (${message.content.length} chars), skipping`);
         return;
       }
-      
+
       logger.info(`Received Discord message from ${message.author.username}: ${message.content}`);
       const urls = extractStreamingUrls(message.content);
       let anyUrlAdded = false;
@@ -387,7 +371,7 @@ discord.on('messageCreate', async (message) => {
           continue;
         }
 
-        const result = await processUrl(url, 'Discord', message.author.username, message.content);
+        const result = await processUrl(url, 'Discord', message.author.username, message.content, 'Discord');
         if (result.success) {
           anyUrlAdded = true;
         } else if (result.reason === 'duplicate') {
@@ -448,7 +432,7 @@ twitch.on('message', async (channel, tags, message, self) => {
       logger.warn(`Twitch message from ${tags.username} too long (${message.length} chars), skipping`);
       return;
     }
-    
+
     const urls = extractStreamingUrls(message);
     let anyUrlAdded = false;
     let anyDuplicate = false;
@@ -465,7 +449,7 @@ twitch.on('message', async (channel, tags, message, self) => {
         continue;
       }
 
-      const result = await processUrl(url, 'Twitch', tags.username, message);
+      const result = await processUrl(url, 'Twitch', tags.username, message, 'Twitch');
       if (result.success) {
         anyUrlAdded = true;
       } else if (result.reason === 'duplicate') {
@@ -513,28 +497,27 @@ async function start() {
       process.exit(1);
     }
 
+    // Initialize StreamSource client
+    streamSourceClient = new StreamSourceClient(config);
+    await streamSourceClient.authenticate();
+    logger.info('StreamSource API client initialized');
+
     // Start rate limiter cleanup
     userRateLimiter.startCleanup();
 
-    // Initial fetch of column mapping first (needed for other fetches)
+    // Initial fetch of column mapping first (needed for Google Sheets operations)
     await fetchColumnMapping();
 
     // Fetch other data in parallel for faster startup
     await Promise.all([
       fetchIgnoreLists(),
-      fetchExistingUrls(),
       fetchKnownCities()
     ]);
 
     // Set up periodic sync
     const ignoreListInterval = setInterval(fetchIgnoreLists, config.IGNORE_LIST_SYNC_INTERVAL);
-    const existingUrlsInterval = setInterval(async () => {
-      await fetchColumnMapping(); // Refresh column mapping in case headers changed
-      await fetchExistingUrls();
-    }, config.EXISTING_URLS_SYNC_INTERVAL || 60000);
     const knownCitiesInterval = setInterval(fetchKnownCities, config.KNOWN_CITIES_SYNC_INTERVAL);
     logger.info(`Ignore lists will be synced every ${config.IGNORE_LIST_SYNC_INTERVAL / 1000} seconds`);
-    logger.info(`Existing URLs and column mapping will be synced every ${(config.EXISTING_URLS_SYNC_INTERVAL || 60000) / 1000} seconds`);
     logger.info(`Known cities will be synced every ${config.KNOWN_CITIES_SYNC_INTERVAL / 1000} seconds`);
 
     // Connect Discord
@@ -549,7 +532,6 @@ async function start() {
 
     // Store intervals for cleanup
     global.ignoreListInterval = ignoreListInterval;
-    global.existingUrlsInterval = existingUrlsInterval;
     global.knownCitiesInterval = knownCitiesInterval;
   } catch (error) {
     logger.error(`Failed to start application: ${error.message}`);
@@ -564,9 +546,6 @@ async function shutdown(signal) {
   // Clear intervals
   if (global.ignoreListInterval) {
     clearInterval(global.ignoreListInterval);
-  }
-  if (global.existingUrlsInterval) {
-    clearInterval(global.existingUrlsInterval);
   }
   if (global.knownCitiesInterval) {
     clearInterval(global.knownCitiesInterval);

@@ -57,5 +57,10 @@ module.exports = {
 
   // Confirmation settings
   DISCORD_CONFIRM_REACTION: process.env.DISCORD_CONFIRM_REACTION !== 'false', // Default true
-  TWITCH_CONFIRM_REPLY: process.env.TWITCH_CONFIRM_REPLY !== 'false' // Default true
+  TWITCH_CONFIRM_REPLY: process.env.TWITCH_CONFIRM_REPLY !== 'false', // Default true
+
+  // StreamSource API Configuration
+  STREAMSOURCE_API_URL: process.env.STREAMSOURCE_API_URL || 'http://host.docker.internal:3000',
+  STREAMSOURCE_USERNAME: process.env.STREAMSOURCE_USERNAME || '',
+  STREAMSOURCE_PASSWORD: process.env.STREAMSOURCE_PASSWORD || ''
 };

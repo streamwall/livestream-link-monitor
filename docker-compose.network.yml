@@ -1,0 +1,31 @@
+# docker-compose.network.yml
+# This file shows how to properly network the livestream monitor with StreamSource
+# when both are running in Docker containers
+
+# To use this configuration:
+# 1. Make sure StreamSource is running in its docker-compose setup
+# 2. Find the network name that StreamSource is using (usually projectname_default)
+# 3. Update the external network name below
+# 4. Update STREAMSOURCE_API_URL in .env to use the service name (e.g., http://web:3000)
+
+version: '3.8'
+
+services:
+  app:
+    build: .
+    container_name: livestream-monitor
+    environment:
+      - NODE_ENV=production
+    env_file:
+      - .env
+    volumes:
+      - ./logs:/app/logs
+      - ./credentials.json:/app/credentials.json:ro
+    restart: unless-stopped
+    networks:
+      - streamsource_network
+
+networks:
+  streamsource_network:
+    external:
+      name: streamsource_default  # Replace with actual StreamSource network name

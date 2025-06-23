@@ -17,7 +17,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Architecture
 
-This is a Node.js monitoring application that watches Twitch chat and Discord channels for livestream links, extracts location information from messages, and records new links with their location data to a Google Sheet.
+This is a Node.js monitoring application that watches Twitch chat and Discord channels for livestream links, extracts location information from messages, and sends new links with their location data to the StreamSource API. Google Sheets is still used for configuration data (ignore lists and known cities).
 
 ### Core Components
 
@@ -31,42 +31,48 @@ This is a Node.js monitoring application that watches Twitch chat and Discord ch
 2. **URL Processing Pipeline** (index.js:234-269)
    - Validates URLs for security (lib/urlValidator.js)
    - Normalizes URLs to ensure proper protocol
-   - Checks if URL already exists in Google Sheet
+   - Checks if URL already exists in StreamSource via API
    - Detects platform (Twitch, YouTube, TikTok, Kick, Facebook)
    - Parses location (city/state) from message content (lib/locationParser.js)
-   - Adds new URLs with location data to Google Sheets
+   - Creates stream in StreamSource with automatic streamer association
+   - Adds location and posted-by info as notes in StreamSource
    - Returns success/failure for confirmation feedback
 
-3. **Google Sheets Integration** (index.js:63-231)
+3. **StreamSource API Integration** (lib/streamSourceClient.js)
+   - JWT-based authentication with automatic token refresh
+   - Creates streams with platform, URL, and status information
+   - Automatic streamer creation/association based on URL usernames
+   - Adds location and posted-by information as system notes
+   - Handles duplicate detection and error cases
+   - Caches streamers to reduce API calls
+
+4. **Google Sheets Integration** (index.js:63-231)
    - Uses service account authentication via configurable path
-   - Dynamic column mapping - reads headers and maps by name
-   - Configurable tab names for all sheets
-   - Reads and caches existing URLs from configurable "Livestreams" tab
    - Reads ignore lists from three configurable tabs
-   - All column names are configurable via environment variables
+   - Reads known cities for location parsing
+   - No longer stores stream data (moved to StreamSource)
 
-4. **Deduplication System** (index.js:145-189)
-   - Fetches existing URLs from sheet on startup
-   - Uses dynamic column mapping to find Link column
-   - Maintains in-memory cache of existing URLs
-   - Syncs periodically based on EXISTING_URLS_SYNC_INTERVAL
-   - Prevents duplicate entries in the sheet
+5. **Deduplication System** (lib/streamSourceClient.js)
+   - Checks StreamSource API for existing streams
+   - Uses URL-based search to detect duplicates
+   - Returns appropriate response for duplicate detection
+   - No longer maintains local cache (uses API directly)
 
-5. **Ignore List System** (index.js:63-118)
+6. **Ignore List System** (index.js:63-118)
    - Fetches ignore lists from Google Sheets on startup
    - Syncs periodically based on IGNORE_LIST_SYNC_INTERVAL
    - Normalizes values (trim whitespace, lowercase usernames, normalize URLs)
    - Filters messages before URL extraction and processing
    - Handles partial failures gracefully
 
-6. **Configuration System** (config.js)
+7. **Configuration System** (config.js)
    - All hardcoded values extracted to environment variables
    - Sheet tab names, column names, status values all configurable
    - Timezone, log level, and file paths configurable
    - Confirmation behaviors can be enabled/disabled
    - Validation for numeric environment variables
 
-7. **Location Parsing System** (lib/locationParser.js)
+8. **Location Parsing System** (lib/locationParser.js)
    - Fetches known cities from "Known Cities" tab in Google Sheets
    - Caches city/state data with normalized lookups
    - Supports common city aliases (NYC -> New York City, LA -> Los Angeles, etc.)
@@ -74,7 +80,7 @@ This is a Node.js monitoring application that watches Twitch chat and Discord ch
    - Handles "city, state" patterns and state abbreviations
    - Syncs with Google Sheets periodically
 
-8. **Performance & Security Features**
+9. **Performance & Security Features**
    - **Rate Limiting** (lib/rateLimiter.js): Prevents spam abuse
    - **URL Validation** (lib/urlValidator.js): Blocks malicious URLs
    - **Health Checks**: Docker health monitoring
@@ -86,12 +92,11 @@ This is a Node.js monitoring application that watches Twitch chat and Discord ch
 All configuration is managed through environment variables:
 - Discord bot token and channel ID
 - Twitch channel name (without #)
-- Google Sheet ID
+- StreamSource API URL, username, and password
+- Google Sheet ID (for configuration data only)
 - Optional: ignore list sync interval (default: 10 seconds)
-- Optional: existing URLs sync interval (default: 60 seconds)
 - Optional: known cities sync interval (default: 5 minutes)
-- Sheet tab names (Livesheet, Known Cities, ignore lists)
-- Column names (City, State, and all existing columns)
+- Sheet tab names (Known Cities, ignore lists)
 
 ### Docker Setup
 
@@ -99,19 +104,20 @@ The application runs in a Docker container based on Node.js Alpine image for a l
 
 ### Key Design Decisions
 
-1. **Simplified Architecture**: No browser automation - just collect and record URLs
-2. **Dynamic Column Mapping**: Reads sheet headers to handle column reordering
+1. **API-First Architecture**: Uses StreamSource API for data storage instead of Google Sheets
+2. **Simplified Architecture**: No browser automation - just collect and send URLs to API
 3. **Comprehensive Configuration**: All values configurable via environment variables
-4. **Deduplication First**: Checks existing URLs before adding to prevent duplicates
-5. **In-Memory Caching**: Maintains caches for performance (URLs, column mapping, cities)
-6. **User Feedback**: Context-appropriate confirmations (Discord reactions, Twitch replies)
-7. **Rate Limiting**: Prevents spam abuse with configurable per-user limits
-8. **Platform-Agnostic URL Extraction**: Single regex pattern array handles all platforms
-9. **Location Intelligence**: Extracts city/state from messages using cached known cities
-10. **Modular Design**: Separated concerns into lib/ modules for maintainability
-11. **Security First**: URL validation, runs as non-root user in Docker
-12. **Structured Logging**: Winston logger with configurable level and file output
-13. **Graceful Shutdown**: Handles SIGINT, SIGTERM, SIGHUP, uncaught exceptions
+4. **Deduplication via API**: Checks StreamSource before adding to prevent duplicates
+5. **Automatic Streamer Management**: Creates/finds streamers based on URL usernames
+6. **Hybrid Storage**: StreamSource for streams, Google Sheets for configuration
+7. **User Feedback**: Context-appropriate confirmations (Discord reactions, Twitch replies)
+8. **Rate Limiting**: Prevents spam abuse with configurable per-user limits
+9. **Platform-Agnostic URL Extraction**: Single regex pattern array handles all platforms
+10. **Location Intelligence**: Extracts city/state from messages using cached known cities
+11. **Modular Design**: Separated concerns into lib/ modules for maintainability
+12. **Security First**: URL validation, JWT authentication, runs as non-root user in Docker
+13. **Structured Logging**: Winston logger with configurable level and file output
+14. **Graceful Shutdown**: Handles SIGINT, SIGTERM, SIGHUP, uncaught exceptions
 
 ### Adding New Platforms
 
