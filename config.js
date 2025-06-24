@@ -57,5 +57,16 @@ module.exports = {
 
   // Confirmation settings
   DISCORD_CONFIRM_REACTION: process.env.DISCORD_CONFIRM_REACTION !== 'false', // Default true
-  TWITCH_CONFIRM_REPLY: process.env.TWITCH_CONFIRM_REPLY !== 'false' // Default true
+  TWITCH_CONFIRM_REPLY: process.env.TWITCH_CONFIRM_REPLY !== 'false', // Default true
+  
+  // Backend Selection
+  BACKEND_TYPE: process.env.BACKEND_TYPE || 'sheets', // 'sheets' or 'notion'
+  
+  // Notion API Configuration
+  NOTION_TOKEN: process.env.NOTION_TOKEN || '',
+  NOTION_DATABASE_ID: process.env.NOTION_DATABASE_ID || '',
+  NOTION_TWITCH_IGNORE_DB_ID: process.env.NOTION_TWITCH_IGNORE_DB_ID || '',
+  NOTION_DISCORD_IGNORE_DB_ID: process.env.NOTION_DISCORD_IGNORE_DB_ID || '',
+  NOTION_URL_IGNORE_DB_ID: process.env.NOTION_URL_IGNORE_DB_ID || '',
+  NOTION_KNOWN_CITIES_DB_ID: process.env.NOTION_KNOWN_CITIES_DB_ID || ''
 };
