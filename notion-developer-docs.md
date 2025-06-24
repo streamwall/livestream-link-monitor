@@ -101,8 +101,8 @@ npm start
 
 ## Switching Between Backends
 
-To switch between StreamSource and Notion backends, simply change the `BACKEND_TYPE` environment variable:
-- `BACKEND_TYPE=streamsource` - Use StreamSource API (default)
+To switch between Google Sheets and Notion backends, simply change the `BACKEND_TYPE` environment variable:
+- `BACKEND_TYPE=sheets` - Use Google Sheets (default)
 - `BACKEND_TYPE=notion` - Use Notion API
 
 ## Notes
