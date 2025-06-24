@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  livestream-link-monitor:
+    extends:
+      file: docker-compose.yml
+      service: livestream-link-monitor
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    command: npm run dev
+    volumes:
+      # Override the read-only mounts to allow hot reloading
+      - ./index.js:/app/index.js
+      - ./config.js:/app/config.js
+      - ./lib:/app/lib
+      # Keep these as read-only since they shouldn't change during dev
+      - ./credentials.json:/app/credentials.json:ro
+      - ./.env:/app/.env:ro
+      # Keep logs writable
+      - ./logs:/app/logs
+    environment:
+      - NODE_ENV=development
