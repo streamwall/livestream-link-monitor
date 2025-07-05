@@ -3,14 +3,14 @@ require('dotenv').config();
 
 const { Client, GatewayIntentBits } = require('discord.js');
 const tmi = require('tmi.js');
-const { google } = require('googleapis');
 const winston = require('winston');
 const fs = require('fs');
 const config = require('./config');
 const RateLimiter = require('./lib/rateLimiter');
 const { validateStreamingUrl } = require('./lib/urlValidator');
 const { extractStreamingUrls, normalizeUrl, resolveTikTokUrl, detectPlatform, extractUsername } = require('./lib/platformDetector');
-const { loadCitiesIntoCache, parseLocation, getCacheInfo } = require('./lib/locationParser');
+const { parseLocation } = require('./lib/locationParser');
+const BackendManager = require('./lib/backends/BackendManager');
 
 // Logger setup
 const logger = winston.createLogger({
@@ -25,13 +25,8 @@ const logger = winston.createLogger({
   ]
 });
 
-// Google Sheets setup
-const auth = new google.auth.GoogleAuth({
-  keyFile: config.GOOGLE_CREDENTIALS_PATH,
-  scopes: ['https://www.googleapis.com/auth/spreadsheets']
-});
-
-const sheets = google.sheets({ version: 'v4', auth });
+// Backend setup
+let backendManager = null;
 
 // Discord client setup
 const discord = new Client({
@@ -47,33 +42,15 @@ const twitch = new tmi.Client({
   channels: [config.TWITCH_CHANNEL]
 });
 
-// Ignore lists
-let twitchUserIgnoreList = new Set();
-let discordUserIgnoreList = new Set();
-let urlIgnoreList = new Set();
-
-// Existing URLs cache
-let existingUrlsCache = new Set();
-
-// Column mapping cache
-let columnMapping = {};
+// Ignore lists (will be populated from backend)
+let ignoreLists = {
+  twitchUsers: new Set(),
+  discordUsers: new Set(),
+  urls: new Set()
+};
 
 // Known cities cache update interval
 let knownCitiesInterval = null;
-
-// Simple mutex for cache operations
-let cacheUpdateInProgress = false;
-const cacheMutex = {
-  async acquire() {
-    while (cacheUpdateInProgress) {
-      await new Promise(resolve => setTimeout(resolve, 10));
-    }
-    cacheUpdateInProgress = true;
-  },
-  release() {
-    cacheUpdateInProgress = false;
-  }
-};
 
 // Rate limiters
 const userRateLimiter = new RateLimiter({
@@ -81,200 +58,36 @@ const userRateLimiter = new RateLimiter({
   maxRequests: config.RATE_LIMIT_MAX_REQUESTS
 });
 
-// Fetch ignore lists from Google Sheets
+// Fetch ignore lists from backend
 async function fetchIgnoreLists() {
-  logger.info('Fetching ignore lists from Google Sheets');
-
-  // Fetch each list independently to handle partial failures
+  logger.info('Fetching ignore lists from backend');
+  
   try {
-    const twitchResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId: config.GOOGLE_SHEET_ID,
-      range: `${config.SHEET_TAB_TWITCH_IGNORE}!A2:A` // Skip header row
-    });
-
-    twitchUserIgnoreList = new Set(
-      (twitchResponse.data.values || [])
-        .map(row => row[0]?.trim()?.toLowerCase())
-        .filter(Boolean)
-    );
-    logger.info(`Loaded ${twitchUserIgnoreList.size} Twitch users to ignore list`);
+    const lists = await backendManager.getIgnoreLists();
+    
+    ignoreLists.twitchUsers = lists.ignoredUsers.twitch || new Set();
+    ignoreLists.discordUsers = lists.ignoredUsers.discord || new Set();
+    ignoreLists.urls = lists.ignoredUrls || new Set();
+    
+    logger.info(`Loaded ${ignoreLists.twitchUsers.size} Twitch users to ignore list`);
+    logger.info(`Loaded ${ignoreLists.discordUsers.size} Discord users to ignore list`);
+    logger.info(`Loaded ${ignoreLists.urls.size} URLs to ignore list`);
   } catch (error) {
-    logger.error(`Failed to fetch Twitch ignore list: ${error.message}`);
-  }
-
-  try {
-    const discordResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId: config.GOOGLE_SHEET_ID,
-      range: `${config.SHEET_TAB_DISCORD_IGNORE}!A2:A` // Skip header row
-    });
-
-    discordUserIgnoreList = new Set(
-      (discordResponse.data.values || [])
-        .map(row => row[0]?.trim()?.toLowerCase())
-        .filter(Boolean)
-    );
-    logger.info(`Loaded ${discordUserIgnoreList.size} Discord users to ignore list`);
-  } catch (error) {
-    logger.error(`Failed to fetch Discord ignore list: ${error.message}`);
-  }
-
-  try {
-    const urlResponse = await sheets.spreadsheets.values.get({
-      spreadsheetId: config.GOOGLE_SHEET_ID,
-      range: `${config.SHEET_TAB_URL_IGNORE}!A2:A` // Skip header row
-    });
-
-    urlIgnoreList = new Set(
-      (urlResponse.data.values || [])
-        .map(row => {
-          const url = row[0]?.trim();
-          return url ? normalizeUrl(url) : null;
-        })
-        .filter(Boolean)
-    );
-    logger.info(`Loaded ${urlIgnoreList.size} URLs to ignore list`);
-  } catch (error) {
-    logger.error(`Failed to fetch URL ignore list: ${error.message}`);
+    logger.error(`Failed to fetch ignore lists: ${error.message}`);
   }
 }
 
-// Fetch known cities from Google Sheets
+// Fetch known cities from backend
 async function fetchKnownCities() {
   try {
-    logger.info('Fetching known cities from Google Sheets');
-
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: config.GOOGLE_SHEET_ID,
-      range: `${config.SHEET_TAB_KNOWN_CITIES}!A2:B` // Skip header row, get columns A (City) and B (State)
-    });
-
-    const cities = response.data.values || [];
-    loadCitiesIntoCache(cities);
-
-    const cacheInfo = getCacheInfo();
-    logger.info(`Loaded ${cacheInfo.size} known cities into location parser cache`);
+    logger.info('Fetching known cities from backend');
+    
+    // The backend will handle loading cities into the location parser cache
+    await backendManager.sync('cities');
+    
+    logger.info('Known cities synced from backend');
   } catch (error) {
     logger.error(`Failed to fetch known cities: ${error.message}`);
-  }
-}
-
-// Fetch column headers and create mapping
-async function fetchColumnMapping() {
-  try {
-    logger.info('Fetching column headers from Google Sheets');
-
-    const response = await sheets.spreadsheets.values.get({
-      spreadsheetId: config.GOOGLE_SHEET_ID,
-      range: `${config.SHEET_TAB_LIVESTREAMS}!1:1` // Get first row (headers)
-    });
-
-    const headers = response.data.values?.[0] || [];
-    columnMapping = {};
-
-    headers.forEach((header, index) => {
-      const normalizedHeader = header.toLowerCase().trim();
-      columnMapping[normalizedHeader] = index;
-    });
-
-    logger.info(`Column mapping created: ${JSON.stringify(columnMapping)}`);
-  } catch (error) {
-    logger.error(`Failed to fetch column headers: ${error.message}`);
-  }
-}
-
-// Fetch existing URLs from Google Sheets
-async function fetchExistingUrls() {
-  await cacheMutex.acquire();
-  try {
-    logger.info('Fetching existing URLs from Google Sheets');
-
-    // Use column mapping to find the Link column
-    const linkColumn = columnMapping[config.COLUMN_LINK.toLowerCase()];
-    if (linkColumn === undefined) {
-      logger.warn('Link column not found in mapping, using default column F');
-      const response = await sheets.spreadsheets.values.get({
-        spreadsheetId: config.GOOGLE_SHEET_ID,
-        range: `${config.SHEET_TAB_LIVESTREAMS}!F2:F`
-      });
-
-      existingUrlsCache = new Set(
-        (response.data.values || [])
-          .map(row => row[0]?.trim())
-          .filter(Boolean)
-          .map(url => normalizeUrl(url))
-      );
-    } else {
-      const columnLetter = String.fromCharCode(65 + linkColumn); // Convert index to letter
-      const response = await sheets.spreadsheets.values.get({
-        spreadsheetId: config.GOOGLE_SHEET_ID,
-        range: `${config.SHEET_TAB_LIVESTREAMS}!${columnLetter}2:${columnLetter}`
-      });
-
-      existingUrlsCache = new Set(
-        (response.data.values || [])
-          .map(row => row[0]?.trim())
-          .filter(Boolean)
-          .map(url => normalizeUrl(url))
-      );
-    }
-
-    logger.info(`Loaded ${existingUrlsCache.size} existing URLs from sheet`);
-  } catch (error) {
-    logger.error(`Failed to fetch existing URLs: ${error.message}`);
-  } finally {
-    cacheMutex.release();
-  }
-}
-
-// Check if URL already exists in sheet
-function isUrlInSheet(url) {
-  const normalizedUrl = normalizeUrl(url);
-  return existingUrlsCache.has(normalizedUrl);
-}
-
-// Add row to Google Sheet
-async function addToSheet(data) {
-  try {
-    const timestamp = new Date().toISOString();
-
-    // Create an empty row array based on the number of columns
-    const maxColumn = Math.max(...Object.values(columnMapping)) + 1;
-    const rowValues = new Array(maxColumn).fill('');
-
-    // Map the data to the correct columns
-    const setColumnValue = (columnName, value) => {
-      const index = columnMapping[columnName.toLowerCase()];
-      if (index !== undefined) {
-        rowValues[index] = value;
-      } else {
-        logger.warn(`Column "${columnName}" not found in sheet headers`);
-      }
-    };
-
-    // Set the values we want to add
-    setColumnValue(config.COLUMN_SOURCE, data.source || '');
-    setColumnValue(config.COLUMN_PLATFORM, data.platform || '');
-    setColumnValue(config.COLUMN_STATUS, config.STATUS_NEW_LINK);
-    setColumnValue(config.COLUMN_LINK, data.link || '');
-    setColumnValue(config.COLUMN_ADDED_DATE, timestamp);
-    setColumnValue(config.COLUMN_POSTED_BY, data.postedBy || '');
-    setColumnValue(config.COLUMN_CITY, data.city || '');
-    setColumnValue(config.COLUMN_STATE, data.state || '');
-
-    logger.debug(`Adding to sheet: ${data.link}`);
-    logger.debug(`Row values: ${JSON.stringify(rowValues)}`);
-
-    await sheets.spreadsheets.values.append({
-      spreadsheetId: config.GOOGLE_SHEET_ID,
-      range: `${config.SHEET_TAB_LIVESTREAMS}!A:A`, // Always append to column A to ensure rows start from the first column
-      valueInputOption: 'USER_ENTERED',
-      insertDataOption: 'INSERT_ROWS',
-      requestBody: { values: [rowValues] }
-    });
-
-    logger.info(`Added to sheet: ${data.link}`);
-  } catch (error) {
-    logger.error(`Error adding to sheet: ${error.message}`);
   }
 }
 
@@ -299,9 +112,9 @@ async function processUrl(url, source, postedBy, messageContent = '') {
       return { success: false, reason: 'invalid' };
     }
 
-    // Check if URL is already in the sheet
-    if (isUrlInSheet(normalizedUrl)) {
-      logger.info(`URL already exists in sheet: ${normalizedUrl}`);
+    // Check if URL already exists
+    if (await backendManager.urlExists(normalizedUrl)) {
+      logger.info(`URL already exists: ${normalizedUrl}`);
       return { success: false, reason: 'duplicate' };
     }
 
@@ -319,22 +132,15 @@ async function processUrl(url, source, postedBy, messageContent = '') {
 
     logger.info(`Adding new URL: ${normalizedUrl} from ${source}`);
 
-    await addToSheet({
+    await backendManager.addStream({
+      url: normalizedUrl,
       platform: platform,
-      link: normalizedUrl,
       postedBy: postedBy,
-      source: username, // Will be null if not extractable
+      source: username || postedBy, // Will use postedBy if username not extractable
       city: city,
-      state: state
+      state: state,
+      notes: `Added from ${source} by ${postedBy}`
     });
-
-    // Add to cache to prevent immediate re-processing
-    await cacheMutex.acquire();
-    try {
-      existingUrlsCache.add(normalizedUrl);
-    } finally {
-      cacheMutex.release();
-    }
 
     return { success: true }; // Successfully added
   } catch (error) {
@@ -352,7 +158,7 @@ discord.on('messageCreate', async (message) => {
     }
 
     // Check if user is in ignore list
-    if (discordUserIgnoreList.has(message.author.username.toLowerCase())) {
+    if (ignoreLists.discordUsers.has(message.author.username.toLowerCase())) {
       logger.info(`Ignoring message from Discord user: ${message.author.username}`);
       return;
     }
@@ -381,7 +187,7 @@ discord.on('messageCreate', async (message) => {
         const normalizedUrl = normalizeUrl(url);
 
         // Check if URL is in ignore list
-        if (urlIgnoreList.has(normalizedUrl)) {
+        if (ignoreLists.urls.has(normalizedUrl)) {
           logger.info(`Ignoring URL from ignore list: ${normalizedUrl}`);
           anyIgnored = true;
           continue;
@@ -432,7 +238,7 @@ twitch.on('message', async (channel, tags, message, self) => {
     if (self) return;
 
     // Check if user is in ignore list
-    if (twitchUserIgnoreList.has(tags.username.toLowerCase())) {
+    if (ignoreLists.twitchUsers.has(tags.username.toLowerCase())) {
       logger.info(`Ignoring message from Twitch user: ${tags.username}`);
       return;
     }
@@ -459,7 +265,7 @@ twitch.on('message', async (channel, tags, message, self) => {
       const normalizedUrl = normalizeUrl(url);
 
       // Check if URL is in ignore list
-      if (urlIgnoreList.has(normalizedUrl)) {
+      if (ignoreLists.urls.has(normalizedUrl)) {
         logger.info(`Ignoring URL from ignore list: ${normalizedUrl}`);
         anyIgnored = true;
         continue;
@@ -506,35 +312,27 @@ twitch.on('message', async (channel, tags, message, self) => {
 // Start the application
 async function start() {
   try {
-    // Validate Google credentials exist
-    if (!fs.existsSync(config.GOOGLE_CREDENTIALS_PATH)) {
-      logger.error(`Google credentials file not found at: ${config.GOOGLE_CREDENTIALS_PATH}`);
-      logger.error('Please ensure credentials.json exists or set GOOGLE_CREDENTIALS_PATH environment variable');
-      process.exit(1);
-    }
-
+    // Initialize backend manager
+    backendManager = new BackendManager(config, logger);
+    await backendManager.initialize();
+    
     // Start rate limiter cleanup
     userRateLimiter.startCleanup();
 
-    // Initial fetch of column mapping first (needed for other fetches)
-    await fetchColumnMapping();
-
-    // Fetch other data in parallel for faster startup
+    // Fetch initial data
     await Promise.all([
       fetchIgnoreLists(),
-      fetchExistingUrls(),
       fetchKnownCities()
     ]);
 
     // Set up periodic sync
     const ignoreListInterval = setInterval(fetchIgnoreLists, config.IGNORE_LIST_SYNC_INTERVAL);
     const existingUrlsInterval = setInterval(async () => {
-      await fetchColumnMapping(); // Refresh column mapping in case headers changed
-      await fetchExistingUrls();
+      await backendManager.sync('urls');
     }, config.EXISTING_URLS_SYNC_INTERVAL || 60000);
     const knownCitiesInterval = setInterval(fetchKnownCities, config.KNOWN_CITIES_SYNC_INTERVAL);
     logger.info(`Ignore lists will be synced every ${config.IGNORE_LIST_SYNC_INTERVAL / 1000} seconds`);
-    logger.info(`Existing URLs and column mapping will be synced every ${(config.EXISTING_URLS_SYNC_INTERVAL || 60000) / 1000} seconds`);
+    logger.info(`Existing URLs will be synced every ${(config.EXISTING_URLS_SYNC_INTERVAL || 60000) / 1000} seconds`);
     logger.info(`Known cities will be synced every ${config.KNOWN_CITIES_SYNC_INTERVAL / 1000} seconds`);
 
     // Connect Discord
@@ -579,6 +377,12 @@ async function shutdown(signal) {
   try {
     discord.destroy();
     await twitch.disconnect();
+    
+    // Shutdown backend manager
+    if (backendManager) {
+      await backendManager.shutdown();
+    }
+    
     logger.info('All services disconnected successfully');
   } catch (error) {
     logger.error(`Error during shutdown: ${error.message}`);

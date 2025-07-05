@@ -30,6 +30,7 @@ services:
       - SHEET_TAB_TWITCH_IGNORE=${SHEET_TAB_TWITCH_IGNORE:-Twitch User Ignorelist}
       - SHEET_TAB_DISCORD_IGNORE=${SHEET_TAB_DISCORD_IGNORE:-Discord User Ignorelist}
       - SHEET_TAB_URL_IGNORE=${SHEET_TAB_URL_IGNORE:-URL Ignorelist}
+      - SHEET_TAB_KNOWN_CITIES=${SHEET_TAB_KNOWN_CITIES:-Known Cities}
 
       # Column configuration (optional)
       - COLUMN_SOURCE=${COLUMN_SOURCE:-Source}
@@ -49,6 +50,17 @@ services:
       # Confirmation settings (optional)
       - DISCORD_CONFIRM_REACTION=${DISCORD_CONFIRM_REACTION:-true}
       - TWITCH_CONFIRM_REPLY=${TWITCH_CONFIRM_REPLY:-true}
+
+      # Backend Configuration
+      - BACKEND_MODE=${BACKEND_MODE:-single}
+      - BACKEND_PRIMARY=${BACKEND_PRIMARY:-googleSheets}
+      - BACKEND_GOOGLE_SHEETS_ENABLED=${BACKEND_GOOGLE_SHEETS_ENABLED:-true}
+      - BACKEND_STREAMSOURCE_ENABLED=${BACKEND_STREAMSOURCE_ENABLED:-false}
+
+      # StreamSource Configuration (if enabled)
+      - STREAMSOURCE_API_URL=${STREAMSOURCE_API_URL:-https://api.streamsource.com}
+      - STREAMSOURCE_EMAIL=${STREAMSOURCE_EMAIL}
+      - STREAMSOURCE_PASSWORD=${STREAMSOURCE_PASSWORD}
 
     volumes:
       - ./credentials.json:/app/credentials.json:ro

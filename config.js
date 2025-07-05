@@ -57,5 +57,16 @@ module.exports = {
 
   // Confirmation settings
   DISCORD_CONFIRM_REACTION: process.env.DISCORD_CONFIRM_REACTION !== 'false', // Default true
-  TWITCH_CONFIRM_REPLY: process.env.TWITCH_CONFIRM_REPLY !== 'false' // Default true
+  TWITCH_CONFIRM_REPLY: process.env.TWITCH_CONFIRM_REPLY !== 'false', // Default true
+
+  // Backend Configuration
+  BACKEND_MODE: process.env.BACKEND_MODE || 'single', // 'single', 'dual-write', or 'migrate'
+  BACKEND_PRIMARY: process.env.BACKEND_PRIMARY || 'googleSheets', // 'googleSheets' or 'streamSource'
+  BACKEND_GOOGLE_SHEETS_ENABLED: process.env.BACKEND_GOOGLE_SHEETS_ENABLED || 'true',
+  BACKEND_STREAMSOURCE_ENABLED: process.env.BACKEND_STREAMSOURCE_ENABLED || 'false',
+
+  // StreamSource Configuration
+  STREAMSOURCE_API_URL: process.env.STREAMSOURCE_API_URL || 'https://api.streamsource.com',
+  STREAMSOURCE_EMAIL: process.env.STREAMSOURCE_EMAIL || '',
+  STREAMSOURCE_PASSWORD: process.env.STREAMSOURCE_PASSWORD || ''
 };
