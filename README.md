@@ -49,6 +49,7 @@ A Node.js application that monitors Twitch chat and Discord channels for livestr
 2. **Docker** & **Docker Compose** - for containerized deployment
 3. **Discord Bot** - [Create at Discord Developer Portal](https://discord.com/developers/applications)
 4. **Backend Account** - Either Google Sheets or StreamSource (or both)
+5. **Make** (optional) - For using the Makefile commands
 
 ### Basic Setup
 
@@ -58,8 +59,15 @@ A Node.js application that monitors Twitch chat and Discord channels for livestr
    cd livestream-link-monitor
    ```
 
-2. **Copy environment template**
+2. **Use the Makefile for easy setup**
    ```bash
+   make install    # Install dependencies and create .env
+   make help       # See all available commands
+   ```
+
+   Or manually:
+   ```bash
+   npm install
    cp .env.example .env
    ```
 
@@ -78,15 +86,17 @@ A Node.js application that monitors Twitch chat and Discord channels for livestr
 
 4. **Choose your backend** (see [Backend Configuration](#backend-configuration) below)
 
-5. **Run with Docker**
+5. **Start the application**
    ```bash
-   docker compose up -d
+   make start      # Production mode with Docker
+   make dev        # Development mode with auto-reload
+   make logs       # View logs
    ```
 
-   Or run locally:
+   Or manually:
    ```bash
-   npm install
-   npm start
+   docker compose up -d    # Production
+   npm run dev             # Development
    ```
 
 ## Backend Configuration
@@ -224,6 +234,29 @@ The application runs with:
 
 ## Development
 
+### Using Make Commands
+
+The project includes a comprehensive Makefile for common tasks:
+
+```bash
+make help          # Show all available commands
+make install       # Set up the project
+make dev           # Start development mode
+make start         # Start production mode
+make stop          # Stop the application
+make restart       # Restart the application
+make logs          # View logs (tail -f)
+make status        # Check application status
+make clean         # Clean up logs and temp files
+make test-backends # Test backend connections
+```
+
+Shortcuts available:
+- `make d` → `make dev`
+- `make s` → `make start`
+- `make l` → `make logs`
+- `make r` → `make restart`
+
 ### Local Development
 
 ```bash
@@ -240,11 +273,13 @@ npm start
 ### Testing Backends
 
 ```bash
-# Test Google Sheets connection
-node test-sheets.js
+# Using Makefile
+make test-backends     # Test all configured backends
+make env-check        # Validate environment configuration
 
-# Test StreamSource connection
-node test-streamsource.js
+# Or run directly
+node test-sheets.js        # Test Google Sheets connection
+node test-streamsource.js  # Test StreamSource connection
 ```
 
 ### Project Structure
