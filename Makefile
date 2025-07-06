@@ -29,7 +29,8 @@ help:
 	@echo "  make local      - Run locally with nodemon"
 	@echo ""
 	@echo "$(GREEN)Testing:$(NC)"
-	@echo "  make test       - Run all backend tests"
+	@echo "  make test       - Run unit tests with coverage"
+	@echo "  make test-watch - Run tests in watch mode"
 	@echo "  make test-sheets   - Test Google Sheets connection"
 	@echo "  make test-source   - Test StreamSource connection"
 	@echo ""
@@ -93,20 +94,29 @@ local:
 	npm run dev
 
 # Testing
-# Run all backend tests
+# Run unit tests with coverage
 test:
-	@echo "$(CYAN)Testing Google Sheets connection...$(NC)"
-	@node test-sheets.js || true
-	@echo ""
-	@echo "$(CYAN)Testing StreamSource connection...$(NC)"
-	@node test-streamsource.js || true
+	@echo "$(CYAN)Running unit tests with coverage...$(NC)"
+	npm test
+
+# Run tests in watch mode
+test-watch:
+	@echo "$(CYAN)Running tests in watch mode...$(NC)"
+	npm run test:watch
+
+# Show test coverage report
+test-coverage:
+	@echo "$(CYAN)Running tests with coverage report...$(NC)"
+	npm test -- --coverage --coverageReporters=text
 
 # Test Google Sheets connection
 test-sheets:
+	@echo "$(CYAN)Testing Google Sheets connection...$(NC)"
 	node test-sheets.js
 
 # Test StreamSource connection
 test-source:
+	@echo "$(CYAN)Testing StreamSource connection...$(NC)"
 	node test-streamsource.js
 
 # Configuration Management

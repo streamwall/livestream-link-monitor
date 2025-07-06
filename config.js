@@ -68,5 +68,11 @@ module.exports = {
   // StreamSource Configuration
   STREAMSOURCE_API_URL: process.env.STREAMSOURCE_API_URL || 'https://api.streamsource.com',
   STREAMSOURCE_EMAIL: process.env.STREAMSOURCE_EMAIL || '',
-  STREAMSOURCE_PASSWORD: process.env.STREAMSOURCE_PASSWORD || ''
+  STREAMSOURCE_PASSWORD: process.env.STREAMSOURCE_PASSWORD || '',
+
+  // Other Configuration
+  STATUS_NEW_LINK: process.env.STATUS_NEW_LINK || 'Live',
+  TIMEZONE: process.env.TIMEZONE || 'America/Los_Angeles',
+  LOG_LEVEL: process.env.LOG_LEVEL || 'info',
+  LOG_FILE: process.env.LOG_FILE || 'app.log'
 };

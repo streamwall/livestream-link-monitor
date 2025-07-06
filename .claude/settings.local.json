@@ -6,7 +6,13 @@
       "Bash(ls:*)",
       "Bash(find:*)",
       "Bash(npm run dev:*)",
-      "Bash(npm uninstall:*)"
+      "Bash(npm uninstall:*)",
+      "Bash(mkdir:*)",
+      "Bash(npm test)",
+      "Bash(pkill:*)",
+      "Bash(true)",
+      "Bash(npm test:*)",
+      "Bash(npx jest:*)"
     ],
     "deny": []
   }
