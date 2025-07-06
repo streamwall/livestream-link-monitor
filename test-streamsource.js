@@ -30,7 +30,7 @@ async function testStreamSource() {
       } else {
         logger.info(`⚠️  Health endpoint returned ${healthResponse.status}`);
       }
-    } catch (error) {
+    } catch {
       logger.info('ℹ️  No health endpoint available (this is normal)');
     }
 

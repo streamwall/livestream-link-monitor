@@ -15,7 +15,9 @@
       "Bash(npx jest:*)",
       "Bash(make lint:*)",
       "Bash(npm run lint)",
-      "Bash(sed:*)"
+      "Bash(sed:*)",
+      "Bash(npm run lint:*)",
+      "Bash(make:*)"
     ],
     "deny": []
   }

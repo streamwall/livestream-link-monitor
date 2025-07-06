@@ -35,7 +35,8 @@ module.exports = [
         clearInterval: 'readonly',
         setImmediate: 'readonly',
         clearImmediate: 'readonly',
-        fetch: 'readonly'
+        fetch: 'readonly',
+        URL: 'readonly'
       }
     },
     rules: {
@@ -196,6 +197,14 @@ module.exports = [
     files: ['*.config.js', 'config.js', 'jest.config.js', 'eslint.config.js'],
     rules: {
       'no-console': 'off'
+    }
+  },
+
+  // Test and utility files
+  {
+    files: ['test-*.js', 'index.js'],
+    rules: {
+      'no-process-exit': 'off'
     }
   }
 ];
