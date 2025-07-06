@@ -4,7 +4,6 @@ require('dotenv').config();
 const { Client, GatewayIntentBits } = require('discord.js');
 const tmi = require('tmi.js');
 const winston = require('winston');
-const fs = require('fs');
 const config = require('./config');
 const RateLimiter = require('./lib/rateLimiter');
 const { validateStreamingUrl } = require('./lib/urlValidator');
@@ -43,7 +42,7 @@ const twitch = new tmi.Client({
 });
 
 // Ignore lists (will be populated from backend)
-let ignoreLists = {
+const ignoreLists = {
   twitchUsers: new Set(),
   discordUsers: new Set(),
   urls: new Set()
@@ -61,14 +60,14 @@ const userRateLimiter = new RateLimiter({
 // Fetch ignore lists from backend
 async function fetchIgnoreLists() {
   logger.info('Fetching ignore lists from backend');
-  
+
   try {
     const lists = await backendManager.getIgnoreLists();
-    
+
     ignoreLists.twitchUsers = lists.ignoredUsers.twitch || new Set();
     ignoreLists.discordUsers = lists.ignoredUsers.discord || new Set();
     ignoreLists.urls = lists.ignoredUrls || new Set();
-    
+
     logger.info(`Loaded ${ignoreLists.twitchUsers.size} Twitch users to ignore list`);
     logger.info(`Loaded ${ignoreLists.discordUsers.size} Discord users to ignore list`);
     logger.info(`Loaded ${ignoreLists.urls.size} URLs to ignore list`);
@@ -81,10 +80,10 @@ async function fetchIgnoreLists() {
 async function fetchKnownCities() {
   try {
     logger.info('Fetching known cities from backend');
-    
+
     // The backend will handle loading cities into the location parser cache
     await backendManager.sync('cities');
-    
+
     logger.info('Known cities synced from backend');
   } catch (error) {
     logger.error(`Failed to fetch known cities: ${error.message}`);
@@ -134,11 +133,11 @@ async function processUrl(url, source, postedBy, messageContent = '') {
 
     await backendManager.addStream({
       url: normalizedUrl,
-      platform: platform,
-      postedBy: postedBy,
+      platform,
+      postedBy,
       source: username || postedBy, // Will use postedBy if username not extractable
-      city: city,
-      state: state,
+      city,
+      state,
       notes: `Added from ${source} by ${postedBy}`
     });
 
@@ -175,7 +174,7 @@ discord.on('messageCreate', async (message) => {
         logger.warn(`Message from ${message.author.username} too long (${message.content.length} chars), skipping`);
         return;
       }
-      
+
       logger.info(`Received Discord message from ${message.author.username}: ${message.content}`);
       const urls = extractStreamingUrls(message.content);
       let anyUrlAdded = false;
@@ -235,7 +234,7 @@ discord.on('messageCreate', async (message) => {
 // Twitch message handler
 twitch.on('message', async (channel, tags, message, self) => {
   try {
-    if (self) return;
+    if (self) { return; }
 
     // Check if user is in ignore list
     if (ignoreLists.twitchUsers.has(tags.username.toLowerCase())) {
@@ -254,7 +253,7 @@ twitch.on('message', async (channel, tags, message, self) => {
       logger.warn(`Twitch message from ${tags.username} too long (${message.length} chars), skipping`);
       return;
     }
-    
+
     const urls = extractStreamingUrls(message);
     let anyUrlAdded = false;
     let anyDuplicate = false;
@@ -315,7 +314,7 @@ async function start() {
     // Initialize backend manager
     backendManager = new BackendManager(config, logger);
     await backendManager.initialize();
-    
+
     // Start rate limiter cleanup
     userRateLimiter.startCleanup();
 
@@ -330,7 +329,7 @@ async function start() {
     const existingUrlsInterval = setInterval(async () => {
       await backendManager.sync('urls');
     }, config.EXISTING_URLS_SYNC_INTERVAL || 60000);
-    const knownCitiesInterval = setInterval(fetchKnownCities, config.KNOWN_CITIES_SYNC_INTERVAL);
+    knownCitiesInterval = setInterval(fetchKnownCities, config.KNOWN_CITIES_SYNC_INTERVAL);
     logger.info(`Ignore lists will be synced every ${config.IGNORE_LIST_SYNC_INTERVAL / 1000} seconds`);
     logger.info(`Existing URLs will be synced every ${(config.EXISTING_URLS_SYNC_INTERVAL || 60000) / 1000} seconds`);
     logger.info(`Known cities will be synced every ${config.KNOWN_CITIES_SYNC_INTERVAL / 1000} seconds`);
@@ -377,12 +376,12 @@ async function shutdown(signal) {
   try {
     discord.destroy();
     await twitch.disconnect();
-    
+
     // Shutdown backend manager
     if (backendManager) {
       await backendManager.shutdown();
     }
-    
+
     logger.info('All services disconnected successfully');
   } catch (error) {
     logger.error(`Error during shutdown: ${error.message}`);

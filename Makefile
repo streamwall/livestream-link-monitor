@@ -34,6 +34,13 @@ help:
 	@echo "  make test-sheets   - Test Google Sheets connection"
 	@echo "  make test-source   - Test StreamSource connection"
 	@echo ""
+	@echo "$(GREEN)Code Quality:$(NC)"
+	@echo "  make lint       - Run linter and show issues"
+	@echo "  make lint-fix   - Run linter and auto-fix issues"
+	@echo "  make lint-check - Run linter with zero warnings policy"
+	@echo "  make format     - Format code (alias for lint-fix)"
+	@echo "  make quality    - Run full quality check (lint + test)"
+	@echo ""
 	@echo "$(GREEN)Configuration:$(NC)"
 	@echo "  make setup      - Initial setup (create .env, install deps)"
 	@echo "  make env-check  - Validate environment configuration"
@@ -118,6 +125,38 @@ test-sheets:
 test-source:
 	@echo "$(CYAN)Testing StreamSource connection...$(NC)"
 	node test-streamsource.js
+
+# Code Quality
+# Run linter and show issues
+lint:
+	@echo "$(CYAN)Running ESLint to check code quality...$(NC)"
+	npm run lint
+
+# Run linter and auto-fix issues
+lint-fix:
+	@echo "$(CYAN)Running ESLint with auto-fix...$(NC)"
+	npm run lint:fix
+	@echo "$(GREEN)Code formatting complete!$(NC)"
+
+# Run linter with zero warnings policy
+lint-check:
+	@echo "$(CYAN)Running ESLint with strict checking (no warnings allowed)...$(NC)"
+	npm run lint:check
+	@echo "$(GREEN)Code quality check passed!$(NC)"
+
+# Format code (alias for lint-fix)
+format: lint-fix
+
+# Run full quality check (lint + test)
+quality:
+	@echo "$(CYAN)Running comprehensive quality check...$(NC)"
+	@echo "$(YELLOW)Step 1: Code linting...$(NC)"
+	@$(MAKE) lint-check --no-print-directory
+	@echo ""
+	@echo "$(YELLOW)Step 2: Running tests...$(NC)"
+	@$(MAKE) test --no-print-directory
+	@echo ""
+	@echo "$(GREEN)✅ All quality checks passed!$(NC)"
 
 # Configuration Management
 # Initial setup for new developers

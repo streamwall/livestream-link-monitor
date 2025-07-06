@@ -12,7 +12,10 @@
       "Bash(pkill:*)",
       "Bash(true)",
       "Bash(npm test:*)",
-      "Bash(npx jest:*)"
+      "Bash(npx jest:*)",
+      "Bash(make lint:*)",
+      "Bash(npm run lint)",
+      "Bash(sed:*)"
     ],
     "deny": []
   }

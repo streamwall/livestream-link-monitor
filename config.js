@@ -20,9 +20,15 @@ module.exports = {
   GOOGLE_CREDENTIALS_PATH: process.env.GOOGLE_CREDENTIALS_PATH || './credentials.json',
 
   // Optional Configuration
-  IGNORE_LIST_SYNC_INTERVAL: validatePositiveInt(process.env.IGNORE_LIST_SYNC_INTERVAL, 10000, 1000), // Sync ignore lists every 10 seconds by default
-  EXISTING_URLS_SYNC_INTERVAL: validatePositiveInt(process.env.EXISTING_URLS_SYNC_INTERVAL, 60000, 1000), // Sync existing URLs every minute by default
-  KNOWN_CITIES_SYNC_INTERVAL: validatePositiveInt(process.env.KNOWN_CITIES_SYNC_INTERVAL, 300000, 1000), // Sync known cities every 5 minutes by default
+  IGNORE_LIST_SYNC_INTERVAL: validatePositiveInt(
+    process.env.IGNORE_LIST_SYNC_INTERVAL, 10000, 1000
+  ), // Sync ignore lists every 10 seconds by default
+  EXISTING_URLS_SYNC_INTERVAL: validatePositiveInt(
+    process.env.EXISTING_URLS_SYNC_INTERVAL, 60000, 1000
+  ), // Sync existing URLs every minute by default
+  KNOWN_CITIES_SYNC_INTERVAL: validatePositiveInt(
+    process.env.KNOWN_CITIES_SYNC_INTERVAL, 300000, 1000
+  ), // Sync known cities every 5 minutes by default
 
   // Rate limiting
   RATE_LIMIT_WINDOW_MS: validatePositiveInt(process.env.RATE_LIMIT_WINDOW_MS, 60000, 1000), // 1 minute

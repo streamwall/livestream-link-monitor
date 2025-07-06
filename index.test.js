@@ -50,14 +50,14 @@ describe('index.js', () => {
   let mockBackendManager;
   let mockLogger;
   let mockRateLimiter;
-  
+
   // Store original process methods
   const originalExit = process.exit;
   const originalOn = process.on;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    
+
     // Mock logger
     mockLogger = {
       info: jest.fn(),
@@ -169,7 +169,7 @@ describe('index.js', () => {
       mockChannel = {
         id: 'test-channel-id'
       };
-      
+
       mockMessage = {
         author: {
           bot: false,
@@ -207,7 +207,7 @@ describe('index.js', () => {
 
     it('should ignore bot messages', async () => {
       mockMessage.author.bot = true;
-      
+
       await messageHandler(mockMessage);
 
       expect(platformDetectorModule.extractStreamingUrls).not.toHaveBeenCalled();
@@ -215,7 +215,7 @@ describe('index.js', () => {
 
     it('should ignore messages from wrong channel', async () => {
       mockMessage.channel.id = 'wrong-channel';
-      
+
       await messageHandler(mockMessage);
 
       expect(platformDetectorModule.extractStreamingUrls).not.toHaveBeenCalled();
@@ -237,7 +237,7 @@ describe('index.js', () => {
 
     it('should handle rate limiting', async () => {
       mockRateLimiter.check.mockReturnValue(false);
-      
+
       await messageHandler(mockMessage);
 
       expect(mockBackendManager.addStream).not.toHaveBeenCalled();
@@ -248,7 +248,7 @@ describe('index.js', () => {
 
     it('should skip duplicate URLs', async () => {
       mockBackendManager.urlExists.mockResolvedValueOnce(true);
-      
+
       await messageHandler(mockMessage);
 
       expect(mockBackendManager.addStream).not.toHaveBeenCalled();
@@ -259,7 +259,7 @@ describe('index.js', () => {
 
     it('should handle invalid URLs', async () => {
       urlValidatorModule.isValidUrl.mockReturnValue(false);
-      
+
       await messageHandler(mockMessage);
 
       expect(mockBackendManager.addStream).not.toHaveBeenCalled();
@@ -270,7 +270,7 @@ describe('index.js', () => {
 
     it('should handle backend errors gracefully', async () => {
       mockBackendManager.addStream.mockRejectedValueOnce(new Error('Backend error'));
-      
+
       await messageHandler(mockMessage);
 
       expect(mockLogger.error).toHaveBeenCalledWith(
@@ -358,7 +358,7 @@ describe('index.js', () => {
   describe('processUrls', () => {
     // Since processUrls is called by the message handlers, it's tested above
     // but we can test error scenarios more directly by mocking internal functions
-    
+
     it('should handle multiple URLs in one message', async () => {
       const mockMessage = {
         author: { bot: false, username: 'user' },
@@ -372,7 +372,7 @@ describe('index.js', () => {
         'https://youtube.com/watch?v=123'
       ]);
       urlValidatorModule.isValidUrl.mockReturnValue(true);
-      platformDetectorModule.detectPlatform.mockImplementation(url => 
+      platformDetectorModule.detectPlatform.mockImplementation(url =>
         url.includes('twitch') ? 'Twitch' : 'YouTube'
       );
 
@@ -383,7 +383,7 @@ describe('index.js', () => {
           messageHandler = handler;
         }
       });
-      
+
       require('./index');
       await new Promise(resolve => setImmediate(resolve));
 
