@@ -503,6 +503,51 @@ twitch.on('message', async (channel, tags, message, self) => {
   }
 });
 
+// Express server for health checks
+const express = require('express');
+const app = express();
+const PORT = process.env.PORT || 3001;
+
+app.get('/health', (req, res) => {
+  res.json({ 
+    status: 'healthy',
+    services: {
+      discord: discord.isReady(),
+      twitch: twitch.readyState() === 'OPEN'
+    }
+  });
+});
+
+// Webhook endpoint for testing
+app.use(express.json());
+app.post('/webhook/discord', async (req, res) => {
+  if (process.env.NODE_ENV !== 'test') {
+    return res.status(403).json({ error: 'Webhooks only available in test mode' });
+  }
+  
+  const { type, data } = req.body;
+  if (type === 'MESSAGE_CREATE' && data) {
+    // Simulate Discord message
+    const mockMessage = {
+      author: { username: data.author?.username || 'test_user' },
+      content: data.content || '',
+      channelId: data.channelId || process.env.DISCORD_CHANNEL_ID,
+      react: async () => ({ emoji: { name: '✅' } })
+    };
+    
+    // Process as if it were a real Discord message
+    discord.emit('messageCreate', mockMessage);
+    res.json({ success: true });
+  } else {
+    res.status(400).json({ error: 'Invalid webhook data' });
+  }
+});
+
+// Start Express server
+app.listen(PORT, () => {
+  logger.info(`Health check server listening on port ${PORT}`);
+});
+
 // Start the application
 async function start() {
   try {
