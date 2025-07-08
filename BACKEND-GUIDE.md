@@ -115,4 +115,4 @@ PATCH /api/v1/streams/:id
 }
 ```
 
-See [StreamSource API Docs](../streamsource/README.md#api) for full reference.
+See [StreamSource API Docs](https://github.com/streamwall/streamsource/blob/main/README.md#api) for full reference.
