@@ -22,23 +22,27 @@ jest.mock('./config', () => ({
   DISCORD_TOKEN: 'test-discord-token',
   DISCORD_CHANNEL_ID: 'test-channel-id',
   TWITCH_CHANNEL: 'test-twitch-channel',
-  BACKEND_MODE: 'single',
-  BACKEND_PRIMARY: 'googleSheets',
-  BACKEND_GOOGLE_SHEETS_ENABLED: 'true',
-  BACKEND_STREAMSOURCE_ENABLED: 'false',
+  STREAMSOURCE_API_URL: 'http://test-api.com',
+  STREAMSOURCE_EMAIL: 'test@example.com',
+  STREAMSOURCE_PASSWORD: 'test-password',
   RATE_LIMIT_WINDOW_MS: 60000,
   RATE_LIMIT_MAX_REQUESTS: 3,
   DISCORD_CONFIRM_REACTION: true,
-  TWITCH_CONFIRM_REPLY: true
+  TWITCH_CONFIRM_REPLY: true,
+  IGNORE_LIST_SYNC_INTERVAL: 10000,
+  EXISTING_URLS_SYNC_INTERVAL: 60000,
+  KNOWN_CITIES_SYNC_INTERVAL: 300000,
+  LOG_LEVEL: 'info',
+  LOG_FILE: 'test.log'
 }));
-jest.mock('./lib/backends/BackendManager');
+jest.mock('./lib/streamSourceClient');
 jest.mock('./lib/rateLimiter');
 jest.mock('./lib/platformDetector');
 jest.mock('./lib/urlValidator');
 jest.mock('./lib/locationParser');
 
 // Import modules for easier access
-const BackendManager = require('./lib/backends/BackendManager');
+const StreamSourceClient = require('./lib/streamSourceClient');
 const rateLimiterModule = require('./lib/rateLimiter');
 const platformDetectorModule = require('./lib/platformDetector');
 const urlValidatorModule = require('./lib/urlValidator');
@@ -47,236 +51,171 @@ const locationParserModule = require('./lib/locationParser');
 describe('index.js', () => {
   let mockDiscordClient;
   let mockTwitchClient;
-  let mockBackendManager;
-  let mockLogger;
+  let mockStreamSourceClient;
   let mockRateLimiter;
-
-  // Store original process methods
-  const originalExit = process.exit;
-  const originalOn = process.on;
+  let mockLogger;
 
   beforeEach(() => {
+    // Reset all mocks
     jest.clearAllMocks();
+    jest.resetModules();
 
-    // Mock logger
+    // Setup logger mock
     mockLogger = {
       info: jest.fn(),
-      error: jest.fn(),
       warn: jest.fn(),
+      error: jest.fn(),
       debug: jest.fn()
     };
     winston.createLogger.mockReturnValue(mockLogger);
 
-    // Mock rate limiter
-    mockRateLimiter = {
-      check: jest.fn().mockReturnValue(true),
-      cleanup: jest.fn()
-    };
-    rateLimiterModule.createRateLimiter.mockReturnValue(mockRateLimiter);
-
-    // Mock Discord client
+    // Setup Discord client mock
     mockDiscordClient = {
-      login: jest.fn().mockResolvedValue(),
       on: jest.fn(),
-      once: jest.fn(),
-      channels: {
-        cache: {
-          get: jest.fn()
-        }
-      }
+      login: jest.fn().mockResolvedValue(),
+      destroy: jest.fn(),
+      user: { tag: 'TestBot#1234' }
     };
     Client.mockReturnValue(mockDiscordClient);
 
-    // Mock Twitch client
+    // Setup Twitch client mock
     mockTwitchClient = {
-      connect: jest.fn().mockResolvedValue(),
       on: jest.fn(),
+      connect: jest.fn().mockResolvedValue(),
+      disconnect: jest.fn().mockResolvedValue(),
       say: jest.fn().mockResolvedValue()
     };
     tmi.Client.mockReturnValue(mockTwitchClient);
 
-    // Mock Backend Manager
-    mockBackendManager = {
+    // Setup StreamSource client mock
+    mockStreamSourceClient = {
       initialize: jest.fn().mockResolvedValue(),
+      addStream: jest.fn().mockResolvedValue({ success: true, id: 123 }),
       urlExists: jest.fn().mockResolvedValue(false),
-      addStream: jest.fn().mockResolvedValue({ success: true }),
       getIgnoreLists: jest.fn().mockResolvedValue({
-        ignoredUsers: {
-          twitch: new Set(),
-          discord: new Set()
-        },
-        ignoredUrls: new Set()
+        ignoredUsers: { twitch: new Set(), discord: new Set() },
+        ignoredUrls: new Set(),
+        ignoredDomains: new Set()
       }),
-      getKnownCities: jest.fn().mockResolvedValue(new Map()),
-      sync: jest.fn().mockResolvedValue(),
-      shutdown: jest.fn().mockResolvedValue()
+      syncKnownCities: jest.fn().mockResolvedValue(),
+      syncExistingUrls: jest.fn().mockResolvedValue()
     };
-    BackendManager.mockReturnValue(mockBackendManager);
+    StreamSourceClient.mockReturnValue(mockStreamSourceClient);
 
-    // Mock process methods
-    process.exit = jest.fn();
-    process.on = jest.fn();
+    // Setup rate limiter mock
+    mockRateLimiter = {
+      checkRateLimit: jest.fn().mockReturnValue(true),
+      startCleanup: jest.fn(),
+      stopCleanup: jest.fn()
+    };
+    rateLimiterModule.mockReturnValue(mockRateLimiter);
+
+    // Setup other mocks
+    urlValidatorModule.validateStreamingUrl = jest.fn().mockReturnValue(true);
+    platformDetectorModule.extractStreamingUrls = jest.fn().mockReturnValue(['https://twitch.tv/test']);
+    platformDetectorModule.normalizeUrl = jest.fn(url => url);
+    platformDetectorModule.resolveTikTokUrl = jest.fn(url => Promise.resolve(url));
+    platformDetectorModule.detectPlatform = jest.fn().mockReturnValue('twitch');
+    platformDetectorModule.extractUsername = jest.fn().mockReturnValue('testuser');
+    locationParserModule.parseLocation = jest.fn().mockReturnValue({ city: 'New York', state: 'NY' });
   });
 
   afterEach(() => {
-    // Restore process methods
-    process.exit = originalExit;
-    process.on = originalOn;
+    // Clear all timers
+    jest.clearAllTimers();
   });
 
   describe('initialization', () => {
-    it('should initialize all components on startup', async () => {
-      // Import the main file (this runs the code)
+    it('should initialize StreamSource client and connect to services', async () => {
       require('./index');
 
-      // Wait for async initialization
+      // Wait for initialization
       await new Promise(resolve => setImmediate(resolve));
 
-      expect(winston.createLogger).toHaveBeenCalled();
-      expect(BackendManager).toHaveBeenCalled();
-      expect(mockBackendManager.initialize).toHaveBeenCalled();
-      expect(Client).toHaveBeenCalledWith({
-        intents: [
-          GatewayIntentBits.Guilds,
-          GatewayIntentBits.GuildMessages,
-          GatewayIntentBits.MessageContent
-        ]
-      });
-      expect(tmi.Client).toHaveBeenCalledWith({
-        channels: ['test-twitch-channel']
-      });
+      expect(StreamSourceClient).toHaveBeenCalledWith(expect.any(Object), mockLogger);
+      expect(mockStreamSourceClient.initialize).toHaveBeenCalled();
+      expect(mockDiscordClient.login).toHaveBeenCalledWith('test-discord-token');
+      expect(mockTwitchClient.connect).toHaveBeenCalled();
+    });
+
+    it('should start sync intervals', async () => {
+      jest.useFakeTimers();
+      require('./index');
+
+      await new Promise(resolve => setImmediate(resolve));
+
+      expect(setInterval).toHaveBeenCalledTimes(3);
+      expect(setInterval).toHaveBeenCalledWith(expect.any(Function), 10000); // Ignore list sync
+      expect(setInterval).toHaveBeenCalledWith(expect.any(Function), 60000); // URL sync
+      expect(setInterval).toHaveBeenCalledWith(expect.any(Function), 300000); // Cities sync
+
+      jest.useRealTimers();
     });
   });
 
   describe('Discord message handling', () => {
     let messageHandler;
-    let mockMessage;
-    let mockChannel;
 
     beforeEach(async () => {
-      // Capture the message handler
-      mockDiscordClient.on.mockImplementation((event, handler) => {
-        if (event === Events.MessageCreate) {
-          messageHandler = handler;
-        }
-      });
-
-      // Import to register handlers
       require('./index');
       await new Promise(resolve => setImmediate(resolve));
 
-      // Setup mock message
-      mockChannel = {
-        id: 'test-channel-id'
-      };
-
-      mockMessage = {
-        author: {
-          bot: false,
-          id: 'user123',
-          username: 'testuser'
-        },
-        channel: mockChannel,
-        content: 'Check out my stream at https://twitch.tv/teststreamer',
-        react: jest.fn().mockResolvedValue()
-      };
-
-      // Setup detector mocks
-      platformDetectorModule.extractStreamingUrls.mockReturnValue(['https://twitch.tv/teststreamer']);
-      urlValidatorModule.isValidUrl.mockReturnValue(true);
-      platformDetectorModule.detectPlatform.mockReturnValue('Twitch');
-      platformDetectorModule.extractUsername.mockReturnValue('teststreamer');
-      locationParserModule.parseLocation.mockReturnValue({ city: 'New York', state: 'NY' });
+      // Get the messageCreate handler
+      const calls = mockDiscordClient.on.mock.calls;
+      const messageCreateCall = calls.find(call => call[0] === 'messageCreate');
+      messageHandler = messageCreateCall[1];
     });
 
-    it('should process valid Discord messages with streaming URLs', async () => {
+    it('should process valid stream URLs from Discord', async () => {
+      const mockMessage = {
+        author: { bot: false, id: '123', username: 'testuser' },
+        channel: { id: 'test-channel-id' },
+        content: 'Check out this stream: https://twitch.tv/test',
+        react: jest.fn()
+      };
+
       await messageHandler(mockMessage);
 
-      expect(platformDetectorModule.extractStreamingUrls).toHaveBeenCalledWith(mockMessage.content);
-      expect(mockBackendManager.urlExists).toHaveBeenCalledWith('https://twitch.tv/teststreamer');
-      expect(mockBackendManager.addStream).toHaveBeenCalledWith({
-        url: 'https://twitch.tv/teststreamer',
+      expect(mockStreamSourceClient.urlExists).toHaveBeenCalledWith('https://twitch.tv/test');
+      expect(mockStreamSourceClient.addStream).toHaveBeenCalledWith({
+        url: 'https://twitch.tv/test',
+        platform: 'twitch',
         source: 'Discord',
-        platform: 'Twitch',
         postedBy: 'testuser',
+        username: 'testuser',
         city: 'New York',
-        state: 'NY'
+        state: 'NY',
+        notes: 'Platform: twitch, Username: testuser'
       });
       expect(mockMessage.react).toHaveBeenCalledWith('✅');
     });
 
     it('should ignore bot messages', async () => {
-      mockMessage.author.bot = true;
+      const mockMessage = {
+        author: { bot: true, id: '123', username: 'bot' },
+        channel: { id: 'test-channel-id' },
+        content: 'https://twitch.tv/test'
+      };
 
       await messageHandler(mockMessage);
 
-      expect(platformDetectorModule.extractStreamingUrls).not.toHaveBeenCalled();
+      expect(mockStreamSourceClient.addStream).not.toHaveBeenCalled();
     });
 
-    it('should ignore messages from wrong channel', async () => {
-      mockMessage.channel.id = 'wrong-channel';
+    it('should handle duplicate URLs', async () => {
+      mockStreamSourceClient.urlExists.mockResolvedValueOnce(true);
+
+      const mockMessage = {
+        author: { bot: false, id: '123', username: 'testuser' },
+        channel: { id: 'test-channel-id' },
+        content: 'https://twitch.tv/test',
+        react: jest.fn()
+      };
 
       await messageHandler(mockMessage);
 
-      expect(platformDetectorModule.extractStreamingUrls).not.toHaveBeenCalled();
-    });
-
-    it('should ignore messages from ignored users', async () => {
-      mockBackendManager.getIgnoreLists.mockResolvedValueOnce({
-        ignoredUsers: {
-          discord: new Set(['testuser']),
-          twitch: new Set()
-        },
-        ignoredUrls: new Set()
-      });
-
-      await messageHandler(mockMessage);
-
-      expect(mockBackendManager.addStream).not.toHaveBeenCalled();
-    });
-
-    it('should handle rate limiting', async () => {
-      mockRateLimiter.check.mockReturnValue(false);
-
-      await messageHandler(mockMessage);
-
-      expect(mockBackendManager.addStream).not.toHaveBeenCalled();
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('Rate limited Discord user')
-      );
-    });
-
-    it('should skip duplicate URLs', async () => {
-      mockBackendManager.urlExists.mockResolvedValueOnce(true);
-
-      await messageHandler(mockMessage);
-
-      expect(mockBackendManager.addStream).not.toHaveBeenCalled();
-      expect(mockLogger.info).toHaveBeenCalledWith(
-        expect.stringContaining('already exists')
-      );
-    });
-
-    it('should handle invalid URLs', async () => {
-      urlValidatorModule.isValidUrl.mockReturnValue(false);
-
-      await messageHandler(mockMessage);
-
-      expect(mockBackendManager.addStream).not.toHaveBeenCalled();
-      expect(mockLogger.warn).toHaveBeenCalledWith(
-        expect.stringContaining('Invalid URL detected')
-      );
-    });
-
-    it('should handle backend errors gracefully', async () => {
-      mockBackendManager.addStream.mockRejectedValueOnce(new Error('Backend error'));
-
-      await messageHandler(mockMessage);
-
-      expect(mockLogger.error).toHaveBeenCalledWith(
-        'Error processing Discord message:',
-        expect.any(Error)
-      );
+      expect(mockStreamSourceClient.addStream).not.toHaveBeenCalled();
+      expect(mockMessage.react).toHaveBeenCalledWith('🔁');
     });
   });
 
@@ -284,176 +223,62 @@ describe('index.js', () => {
     let messageHandler;
 
     beforeEach(async () => {
-      // Capture the message handler
-      mockTwitchClient.on.mockImplementation((event, handler) => {
-        if (event === 'message') {
-          messageHandler = handler;
-        }
-      });
-
-      // Import to register handlers
       require('./index');
       await new Promise(resolve => setImmediate(resolve));
 
-      // Setup detector mocks
-      platformDetectorModule.extractStreamingUrls.mockReturnValue(['https://youtube.com/watch?v=abc123']);
-      urlValidatorModule.isValidUrl.mockReturnValue(true);
-      platformDetectorModule.detectPlatform.mockReturnValue('YouTube');
-      locationParserModule.parseLocation.mockReturnValue(null);
+      // Get the message handler
+      const calls = mockTwitchClient.on.mock.calls;
+      const messageCall = calls.find(call => call[0] === 'message');
+      messageHandler = messageCall[1];
     });
 
-    it('should process valid Twitch messages with streaming URLs', async () => {
-      const tags = { username: 'twitchuser' };
-      const message = 'Watch my YouTube video: https://youtube.com/watch?v=abc123';
-
-      await messageHandler('test-twitch-channel', tags, message, false);
-
-      expect(platformDetectorModule.extractStreamingUrls).toHaveBeenCalledWith(message);
-      expect(mockBackendManager.addStream).toHaveBeenCalledWith({
-        url: 'https://youtube.com/watch?v=abc123',
-        source: 'Twitch',
-        platform: 'YouTube',
-        postedBy: 'twitchuser',
-        city: '',
-        state: ''
-      });
-      expect(mockTwitchClient.say).toHaveBeenCalledWith(
-        'test-twitch-channel',
-        '@twitchuser URL added! ✅'
+    it('should process valid stream URLs from Twitch', async () => {
+      await messageHandler(
+        '#test-channel',
+        { username: 'testuser' },
+        'Check out https://twitch.tv/test',
+        false
       );
+
+      expect(mockStreamSourceClient.addStream).toHaveBeenCalledWith({
+        url: 'https://twitch.tv/test',
+        platform: 'twitch',
+        source: 'Twitch',
+        postedBy: 'testuser',
+        username: 'testuser',
+        city: 'New York',
+        state: 'NY',
+        notes: 'Platform: twitch, Username: testuser'
+      });
+      expect(mockTwitchClient.say).toHaveBeenCalledWith('#test-channel', '@testuser Added 1 stream(s) to the list!');
     });
 
     it('should ignore self messages', async () => {
-      await messageHandler('test-twitch-channel', {}, 'message', true);
-
-      expect(platformDetectorModule.extractStreamingUrls).not.toHaveBeenCalled();
-    });
-
-    it('should handle missing username', async () => {
-      await messageHandler('test-twitch-channel', {}, 'https://twitch.tv/stream', false);
-
-      expect(platformDetectorModule.extractStreamingUrls).toHaveBeenCalled();
-      expect(mockBackendManager.addStream).toHaveBeenCalledWith(
-        expect.objectContaining({
-          postedBy: 'unknown'
-        })
-      );
-    });
-
-    it('should handle ignored Twitch users', async () => {
-      mockBackendManager.getIgnoreLists.mockResolvedValueOnce({
-        ignoredUsers: {
-          twitch: new Set(['twitchuser']),
-          discord: new Set()
-        },
-        ignoredUrls: new Set()
-      });
-
-      await messageHandler('test-twitch-channel', { username: 'twitchuser' }, 'message', false);
-
-      expect(mockBackendManager.addStream).not.toHaveBeenCalled();
-    });
-  });
-
-  describe('processUrls', () => {
-    // Since processUrls is called by the message handlers, it's tested above
-    // but we can test error scenarios more directly by mocking internal functions
-
-    it('should handle multiple URLs in one message', async () => {
-      const mockMessage = {
-        author: { bot: false, username: 'user' },
-        channel: { id: 'test-channel-id' },
-        content: 'https://twitch.tv/stream1 and https://youtube.com/watch?v=123',
-        react: jest.fn()
-      };
-
-      platformDetectorModule.extractStreamingUrls.mockReturnValue([
-        'https://twitch.tv/stream1',
-        'https://youtube.com/watch?v=123'
-      ]);
-      urlValidatorModule.isValidUrl.mockReturnValue(true);
-      platformDetectorModule.detectPlatform.mockImplementation(url =>
-        url.includes('twitch') ? 'Twitch' : 'YouTube'
+      await messageHandler(
+        '#test-channel',
+        { username: 'bot' },
+        'https://twitch.tv/test',
+        true // self = true
       );
 
-      // Get message handler
-      let messageHandler;
-      mockDiscordClient.on.mockImplementation((event, handler) => {
-        if (event === Events.MessageCreate) {
-          messageHandler = handler;
-        }
-      });
-
-      require('./index');
-      await new Promise(resolve => setImmediate(resolve));
-
-      await messageHandler(mockMessage);
-
-      expect(mockBackendManager.addStream).toHaveBeenCalledTimes(2);
+      expect(mockStreamSourceClient.addStream).not.toHaveBeenCalled();
     });
   });
 
-  describe('sync intervals', () => {
-    beforeEach(() => {
-      jest.useFakeTimers();
-    });
-
-    afterEach(() => {
-      jest.useRealTimers();
-    });
-
-    it('should set up sync intervals', async () => {
+  describe('graceful shutdown', () => {
+    it('should cleanup on SIGTERM', async () => {
       require('./index');
       await new Promise(resolve => setImmediate(resolve));
 
-      // Fast forward time to trigger syncs
-      jest.advanceTimersByTime(10000); // IGNORE_LIST_SYNC_INTERVAL
-      expect(mockBackendManager.sync).toHaveBeenCalledWith('ignoreLists');
+      // Trigger SIGTERM
+      process.emit('SIGTERM');
 
-      jest.advanceTimersByTime(60000); // EXISTING_URLS_SYNC_INTERVAL
-      expect(mockBackendManager.sync).toHaveBeenCalledWith('urls');
+      // Give it time to cleanup
+      await new Promise(resolve => setTimeout(resolve, 100));
 
-      jest.advanceTimersByTime(300000); // KNOWN_CITIES_SYNC_INTERVAL
-      expect(mockBackendManager.sync).toHaveBeenCalledWith('cities');
-    });
-  });
-
-  describe('shutdown handling', () => {
-    it('should handle graceful shutdown', async () => {
-      let shutdownHandler;
-      process.on.mockImplementation((signal, handler) => {
-        if (signal === 'SIGINT') {
-          shutdownHandler = handler;
-        }
-      });
-
-      require('./index');
-      await new Promise(resolve => setImmediate(resolve));
-
-      // Trigger shutdown
-      await shutdownHandler();
-
-      expect(mockBackendManager.shutdown).toHaveBeenCalled();
-      expect(mockLogger.info).toHaveBeenCalledWith('Shutting down gracefully...');
-      expect(process.exit).toHaveBeenCalledWith(0);
-    });
-
-    it('should handle uncaught exceptions', async () => {
-      let exceptionHandler;
-      process.on.mockImplementation((event, handler) => {
-        if (event === 'uncaughtException') {
-          exceptionHandler = handler;
-        }
-      });
-
-      require('./index');
-      await new Promise(resolve => setImmediate(resolve));
-
-      const error = new Error('Test error');
-      exceptionHandler(error);
-
-      expect(mockLogger.error).toHaveBeenCalledWith('Uncaught Exception:', error);
-      expect(process.exit).toHaveBeenCalledWith(1);
+      expect(mockRateLimiter.stopCleanup).toHaveBeenCalled();
+      expect(mockDiscordClient.destroy).toHaveBeenCalled();
+      expect(mockTwitchClient.disconnect).toHaveBeenCalled();
     });
   });
 });

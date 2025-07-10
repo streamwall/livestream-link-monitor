@@ -1,4 +1,4 @@
-// index.js
+// index.js - Main entry point for livestream-link-monitor
 require('dotenv').config();
 
 const { Client, GatewayIntentBits } = require('discord.js');
@@ -9,7 +9,7 @@ const RateLimiter = require('./lib/rateLimiter');
 const { validateStreamingUrl } = require('./lib/urlValidator');
 const { extractStreamingUrls, normalizeUrl, resolveTikTokUrl, detectPlatform, extractUsername } = require('./lib/platformDetector');
 const { parseLocation } = require('./lib/locationParser');
-const BackendManager = require('./lib/backends/BackendManager');
+const StreamSourceClient = require('./lib/streamSourceClient');
 
 // Logger setup
 const logger = winston.createLogger({
@@ -24,10 +24,10 @@ const logger = winston.createLogger({
   ]
 });
 
-// Backend setup
-let backendManager = null;
+// StreamSource client
+let streamSource = null;
 
-// Discord client setup
+// Discord client
 const discord = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -36,375 +36,297 @@ const discord = new Client({
   ]
 });
 
-// Twitch client setup
+// Twitch client
 const twitch = new tmi.Client({
   channels: [config.TWITCH_CHANNEL]
 });
 
-// Ignore lists (will be populated from backend)
+// Ignore lists (populated from StreamSource)
 const ignoreLists = {
   twitchUsers: new Set(),
   discordUsers: new Set(),
-  urls: new Set()
+  urls: new Set(),
+  domains: new Set()
 };
 
-// Known cities cache update interval
+// Rate limiter
+const rateLimiter = new RateLimiter(config.RATE_LIMIT_WINDOW_MS, config.RATE_LIMIT_MAX_REQUESTS);
+
+// Sync intervals
+let ignoreListInterval = null;
+let existingUrlsInterval = null;
 let knownCitiesInterval = null;
 
-// Rate limiters
-const userRateLimiter = new RateLimiter({
-  windowMs: config.RATE_LIMIT_WINDOW_MS,
-  maxRequests: config.RATE_LIMIT_MAX_REQUESTS
-});
-
-// Fetch ignore lists from backend
+// Helper functions
 async function fetchIgnoreLists() {
-  logger.info('Fetching ignore lists from backend');
-
+  logger.info('Fetching ignore lists from StreamSource');
+  
   try {
-    const lists = await backendManager.getIgnoreLists();
-
+    const lists = await streamSource.getIgnoreLists();
+    
     ignoreLists.twitchUsers = lists.ignoredUsers.twitch || new Set();
     ignoreLists.discordUsers = lists.ignoredUsers.discord || new Set();
     ignoreLists.urls = lists.ignoredUrls || new Set();
-
-    logger.info(`Loaded ${ignoreLists.twitchUsers.size} Twitch users to ignore list`);
-    logger.info(`Loaded ${ignoreLists.discordUsers.size} Discord users to ignore list`);
-    logger.info(`Loaded ${ignoreLists.urls.size} URLs to ignore list`);
+    ignoreLists.domains = lists.ignoredDomains || new Set();
+    
+    logger.info(`Loaded ignore lists - Twitch: ${ignoreLists.twitchUsers.size}, Discord: ${ignoreLists.discordUsers.size}, URLs: ${ignoreLists.urls.size}, Domains: ${ignoreLists.domains.size}`);
   } catch (error) {
     logger.error(`Failed to fetch ignore lists: ${error.message}`);
   }
 }
 
-// Fetch known cities from backend
 async function fetchKnownCities() {
+  logger.info('Syncing known cities from StreamSource');
+  
   try {
-    logger.info('Fetching known cities from backend');
-
-    // The backend will handle loading cities into the location parser cache
-    await backendManager.sync('cities');
-
-    logger.info('Known cities synced from backend');
+    await streamSource.syncKnownCities();
+    logger.info('Known cities synced from StreamSource');
   } catch (error) {
-    logger.error(`Failed to fetch known cities: ${error.message}`);
+    logger.error(`Failed to sync known cities: ${error.message}`);
   }
 }
 
-// Process URLs
-async function processUrl(url, source, postedBy, messageContent = '') {
+async function processStreamUrl(url, source, messageContent, postedBy) {
   try {
-    let normalizedUrl = normalizeUrl(url);
-
-    // Resolve TikTok redirect URLs to their canonical form
-    if (normalizedUrl.includes('tiktok.com/t/')) {
-      const resolvedUrl = await resolveTikTokUrl(normalizedUrl);
-      if (resolvedUrl !== normalizedUrl) {
-        logger.info(`Resolved TikTok redirect: ${normalizedUrl} -> ${resolvedUrl}`);
-        normalizedUrl = resolvedUrl;
-      }
-    }
-
-    // Validate URL
-    const validation = validateStreamingUrl(normalizedUrl);
-    if (!validation.valid) {
-      logger.warn(`Invalid URL rejected: ${normalizedUrl} - ${validation.reason}`);
+    // Validate URL security
+    if (!validateStreamingUrl(url)) {
+      logger.warn(`Invalid/insecure URL blocked: ${url}`);
       return { success: false, reason: 'invalid' };
     }
 
+    // Normalize the URL
+    let normalizedUrl = normalizeUrl(url);
+
+    // Resolve TikTok redirects if needed
+    if (normalizedUrl.includes('tiktok.com')) {
+      try {
+        normalizedUrl = await resolveTikTokUrl(normalizedUrl);
+      } catch (error) {
+        logger.error(`Failed to resolve TikTok URL: ${error.message}`);
+      }
+    }
+
+    // Check if URL is in ignore list
+    if (ignoreLists.urls.has(normalizedUrl)) {
+      logger.info(`URL in ignore list: ${normalizedUrl}`);
+      return { success: false, reason: 'ignored' };
+    }
+
+    // Check if domain is ignored
+    const urlObj = new URL(normalizedUrl);
+    const domain = urlObj.hostname.replace(/^www\./, '');
+    if (ignoreLists.domains.has(domain)) {
+      logger.info(`Domain in ignore list: ${domain}`);
+      return { success: false, reason: 'ignored' };
+    }
+
     // Check if URL already exists
-    if (await backendManager.urlExists(normalizedUrl)) {
+    if (await streamSource.urlExists(normalizedUrl)) {
       logger.info(`URL already exists: ${normalizedUrl}`);
       return { success: false, reason: 'duplicate' };
     }
 
+    // Detect platform
     const platform = detectPlatform(normalizedUrl);
-    const username = extractUsername(normalizedUrl);
+    if (!platform) {
+      logger.warn(`Unknown platform for URL: ${normalizedUrl}`);
+      return { success: false, reason: 'unknown_platform' };
+    }
 
     // Parse location from message
-    const locationInfo = parseLocation(messageContent);
-    const city = locationInfo?.city || '';
-    const state = locationInfo?.state || '';
+    const location = parseLocation(messageContent);
 
-    if (locationInfo) {
-      logger.info(`Detected location: ${city}, ${state}`);
-    }
+    // Extract username if possible
+    const username = extractUsername(normalizedUrl, platform);
 
     logger.info(`Adding new URL: ${normalizedUrl} from ${source}`);
 
-    await backendManager.addStream({
+    await streamSource.addStream({
       url: normalizedUrl,
       platform,
+      source,
       postedBy,
-      source: username || postedBy, // Will use postedBy if username not extractable
-      city,
-      state,
-      notes: `Added from ${source} by ${postedBy}`
+      username,
+      city: location?.city || '',
+      state: location?.state || '',
+      notes: `Platform: ${platform}${username ? `, Username: ${username}` : ''}`
     });
 
-    return { success: true }; // Successfully added
+    return { success: true };
   } catch (error) {
-    logger.error(`Error processing URL: ${error.message}`);
+    logger.error(`Error processing URL ${url}: ${error.message}`);
     return { success: false, reason: 'error' };
   }
 }
 
-// Discord message handler
+// Discord event handlers
+discord.on('ready', () => {
+  logger.info(`Discord bot logged in as ${discord.user.tag}`);
+});
+
 discord.on('messageCreate', async (message) => {
-  try {
-    if (message.author.bot) {
-      logger.info(`Ignoring message from bot: ${message.author.username}`);
-      return;
-    }
+  // Skip bot messages
+  if (message.author.bot) return;
 
-    // Check if user is in ignore list
-    if (ignoreLists.discordUsers.has(message.author.username.toLowerCase())) {
-      logger.info(`Ignoring message from Discord user: ${message.author.username}`);
-      return;
-    }
+  // Only process messages from configured channel
+  if (message.channel.id !== config.DISCORD_CHANNEL_ID) return;
 
-    // Check rate limit
-    if (!userRateLimiter.isAllowed(`discord:${message.author.id}`)) {
-      logger.warn(`Rate limit exceeded for Discord user: ${message.author.username}`);
-      return;
-    }
-
-    if (message.channelId === config.DISCORD_CHANNEL_ID) {
-      // Validate message length to prevent processing extremely long messages
-      if (message.content.length > 2000) {
-        logger.warn(`Message from ${message.author.username} too long (${message.content.length} chars), skipping`);
-        return;
-      }
-
-      logger.info(`Received Discord message from ${message.author.username}: ${message.content}`);
-      const urls = extractStreamingUrls(message.content);
-      let anyUrlAdded = false;
-      let anyDuplicate = false;
-      let anyIgnored = false;
-
-      // Process URLs
-      for (const url of urls) {
-        const normalizedUrl = normalizeUrl(url);
-
-        // Check if URL is in ignore list
-        if (ignoreLists.urls.has(normalizedUrl)) {
-          logger.info(`Ignoring URL from ignore list: ${normalizedUrl}`);
-          anyIgnored = true;
-          continue;
-        }
-
-        const result = await processUrl(url, 'Discord', message.author.username, message.content);
-        if (result.success) {
-          anyUrlAdded = true;
-        } else if (result.reason === 'duplicate') {
-          anyDuplicate = true;
-        }
-      }
-
-      // Add appropriate reaction based on results (priority: success > ignored > duplicate)
-      if (config.DISCORD_CONFIRM_REACTION) {
-        try {
-          let reaction = null;
-          let reactionType = null;
-
-          if (anyUrlAdded) {
-            reaction = '✅';
-            reactionType = 'checkmark';
-          } else if (anyIgnored) {
-            reaction = '❌';
-            reactionType = 'ignored';
-          } else if (anyDuplicate) {
-            reaction = '🔁';
-            reactionType = 'duplicate';
-          }
-
-          if (reaction) {
-            await message.react(reaction);
-            logger.info(`Added ${reactionType} reaction to Discord message from ${message.author.username}`);
-          }
-        } catch (error) {
-          logger.error(`Failed to add reaction: ${error.message}`);
-        }
-      }
-    }
-  } catch (error) {
-    logger.error(`Error in Discord message handler: ${error.message}`, { error: error.stack });
+  // Check ignore list
+  if (ignoreLists.discordUsers.has(message.author.username.toLowerCase())) {
+    logger.debug(`Ignoring message from Discord user: ${message.author.username}`);
+    return;
   }
-});
 
-// Twitch message handler
-twitch.on('message', async (channel, tags, message, self) => {
-  try {
-    if (self) { return; }
-
-    // Check if user is in ignore list
-    if (ignoreLists.twitchUsers.has(tags.username.toLowerCase())) {
-      logger.info(`Ignoring message from Twitch user: ${tags.username}`);
-      return;
+  // Check rate limit
+  if (!rateLimiter.checkRateLimit(message.author.id)) {
+    logger.warn(`Rate limit exceeded for Discord user: ${message.author.username}`);
+    if (config.DISCORD_CONFIRM_REACTION) {
+      await message.react('⏱️').catch(() => {});
     }
+    return;
+  }
 
-    // Check rate limit
-    if (!userRateLimiter.isAllowed(`twitch:${tags['user-id']}`)) {
-      logger.warn(`Rate limit exceeded for Twitch user: ${tags.username}`);
-      return;
-    }
+  // Extract URLs from message
+  const urls = extractStreamingUrls(message.content);
+  if (urls.length === 0) return;
 
-    // Validate message length
-    if (message.length > 500) {
-      logger.warn(`Twitch message from ${tags.username} too long (${message.length} chars), skipping`);
-      return;
-    }
+  logger.info(`Found ${urls.length} URL(s) in Discord message from ${message.author.username}`);
 
-    const urls = extractStreamingUrls(message);
-    let anyUrlAdded = false;
-    let anyDuplicate = false;
-    let anyIgnored = false;
-
-    // Process URLs
-    for (const url of urls) {
-      const normalizedUrl = normalizeUrl(url);
-
-      // Check if URL is in ignore list
-      if (ignoreLists.urls.has(normalizedUrl)) {
-        logger.info(`Ignoring URL from ignore list: ${normalizedUrl}`);
-        anyIgnored = true;
-        continue;
-      }
-
-      const result = await processUrl(url, 'Twitch', tags.username, message);
+  // Process each URL
+  for (const url of urls) {
+    const result = await processStreamUrl(url, 'Discord', message.content, message.author.username);
+    
+    // Add reaction based on result
+    if (config.DISCORD_CONFIRM_REACTION) {
       if (result.success) {
-        anyUrlAdded = true;
+        await message.react('✅').catch(() => {});
       } else if (result.reason === 'duplicate') {
-        anyDuplicate = true;
+        await message.react('🔁').catch(() => {});
+      } else {
+        await message.react('❌').catch(() => {});
       }
     }
-
-    // Send appropriate reply based on results (priority: success > ignored > duplicate)
-    if (config.TWITCH_CONFIRM_REPLY) {
-      try {
-        let replyEmoji = '';
-        let replyType = '';
-
-        if (anyUrlAdded) {
-          replyEmoji = '✅';
-          replyType = 'checkmark';
-        } else if (anyIgnored) {
-          replyEmoji = '❌';
-          replyType = 'ignored';
-        } else if (anyDuplicate) {
-          replyEmoji = '🔁';
-          replyType = 'duplicate';
-        }
-
-        if (replyEmoji) {
-          await twitch.say(channel, `@${tags.username} ${replyEmoji}`);
-          logger.info(`Sent ${replyType} reply to Twitch user ${tags.username}`);
-        }
-      } catch (error) {
-        logger.error(`Failed to send Twitch reply: ${error.message}`);
-      }
-    }
-  } catch (error) {
-    logger.error(`Error in Twitch message handler: ${error.message}`, { error: error.stack });
   }
 });
 
-// Start the application
-async function start() {
+// Twitch event handlers
+twitch.on('connected', () => {
+  logger.info('Connected to Twitch chat');
+});
+
+twitch.on('message', async (channel, tags, message, self) => {
+  // Skip bot messages
+  if (self) return;
+
+  const username = tags.username?.toLowerCase();
+
+  // Check ignore list
+  if (ignoreLists.twitchUsers.has(username)) {
+    logger.debug(`Ignoring message from Twitch user: ${username}`);
+    return;
+  }
+
+  // Check rate limit
+  if (!rateLimiter.checkRateLimit(username)) {
+    logger.warn(`Rate limit exceeded for Twitch user: ${username}`);
+    return;
+  }
+
+  // Extract URLs from message
+  const urls = extractStreamingUrls(message);
+  if (urls.length === 0) return;
+
+  logger.info(`Found ${urls.length} URL(s) in Twitch message from ${username}`);
+
+  // Process each URL
+  let successCount = 0;
+  for (const url of urls) {
+    const result = await processStreamUrl(url, 'Twitch', message, username);
+    if (result.success) successCount++;
+  }
+
+  // Send confirmation message
+  if (config.TWITCH_CONFIRM_REPLY && successCount > 0) {
+    twitch.say(channel, `@${username} Added ${successCount} stream(s) to the list!`).catch(() => {});
+  }
+});
+
+// Error handlers
+discord.on('error', error => {
+  logger.error(`Discord error: ${error.message}`);
+});
+
+twitch.on('disconnected', (reason) => {
+  logger.warn(`Disconnected from Twitch: ${reason}`);
+});
+
+// Main startup function
+async function main() {
   try {
-    // Initialize backend manager
-    backendManager = new BackendManager(config, logger);
-    await backendManager.initialize();
+    // Initialize StreamSource client
+    streamSource = new StreamSourceClient(config, logger);
+    await streamSource.initialize();
 
     // Start rate limiter cleanup
-    userRateLimiter.startCleanup();
+    rateLimiter.startCleanup();
 
-    // Fetch initial data
-    await Promise.all([
-      fetchIgnoreLists(),
-      fetchKnownCities()
-    ]);
+    // Initial data fetch
+    await fetchIgnoreLists();
+    await fetchKnownCities();
 
-    // Set up periodic sync
-    const ignoreListInterval = setInterval(fetchIgnoreLists, config.IGNORE_LIST_SYNC_INTERVAL);
-    const existingUrlsInterval = setInterval(async () => {
-      await backendManager.sync('urls');
-    }, config.EXISTING_URLS_SYNC_INTERVAL || 60000);
+    // Set up sync intervals
+    ignoreListInterval = setInterval(fetchIgnoreLists, config.IGNORE_LIST_SYNC_INTERVAL);
+    existingUrlsInterval = setInterval(() => streamSource.syncExistingUrls(), config.EXISTING_URLS_SYNC_INTERVAL);
     knownCitiesInterval = setInterval(fetchKnownCities, config.KNOWN_CITIES_SYNC_INTERVAL);
-    logger.info(`Ignore lists will be synced every ${config.IGNORE_LIST_SYNC_INTERVAL / 1000} seconds`);
-    logger.info(`Existing URLs will be synced every ${(config.EXISTING_URLS_SYNC_INTERVAL || 60000) / 1000} seconds`);
-    logger.info(`Known cities will be synced every ${config.KNOWN_CITIES_SYNC_INTERVAL / 1000} seconds`);
 
-    // Connect Discord
-    await discord.login(config.DISCORD_TOKEN);
-    logger.info('Discord bot connected');
+    // Connect to Discord
+    if (config.DISCORD_TOKEN && config.DISCORD_CHANNEL_ID) {
+      await discord.login(config.DISCORD_TOKEN);
+    } else {
+      logger.warn('Discord configuration missing, skipping Discord connection');
+    }
 
-    // Connect Twitch
-    await twitch.connect();
-    logger.info('Twitch bot connected');
+    // Connect to Twitch
+    if (config.TWITCH_CHANNEL) {
+      await twitch.connect();
+    } else {
+      logger.warn('Twitch configuration missing, skipping Twitch connection');
+    }
 
-    logger.info('Application started successfully');
-
-    // Store intervals for cleanup
-    global.ignoreListInterval = ignoreListInterval;
-    global.existingUrlsInterval = existingUrlsInterval;
-    global.knownCitiesInterval = knownCitiesInterval;
+    logger.info('Livestream Link Monitor started successfully');
   } catch (error) {
-    logger.error(`Failed to start application: ${error.message}`);
+    logger.error(`Failed to start: ${error.message}`);
     process.exit(1);
   }
 }
 
-// Graceful shutdown handler
-async function shutdown(signal) {
-  logger.info(`Received ${signal}, shutting down gracefully...`);
+// Graceful shutdown
+async function shutdown() {
+  logger.info('Shutting down gracefully...');
 
   // Clear intervals
-  if (global.ignoreListInterval) {
-    clearInterval(global.ignoreListInterval);
-  }
-  if (global.existingUrlsInterval) {
-    clearInterval(global.existingUrlsInterval);
-  }
-  if (global.knownCitiesInterval) {
-    clearInterval(global.knownCitiesInterval);
-  }
+  if (ignoreListInterval) clearInterval(ignoreListInterval);
+  if (existingUrlsInterval) clearInterval(existingUrlsInterval);
+  if (knownCitiesInterval) clearInterval(knownCitiesInterval);
 
-  // Stop rate limiter cleanup
-  userRateLimiter.stopCleanup();
+  // Stop rate limiter
+  rateLimiter.stopCleanup();
 
-  // Disconnect services
+  // Disconnect from services
   try {
     discord.destroy();
     await twitch.disconnect();
-
-    // Shutdown backend manager
-    if (backendManager) {
-      await backendManager.shutdown();
-    }
-
-    logger.info('All services disconnected successfully');
   } catch (error) {
     logger.error(`Error during shutdown: ${error.message}`);
   }
 
+  logger.info('Shutdown complete');
   process.exit(0);
 }
 
-// Handle various shutdown signals
-process.on('SIGINT', () => shutdown('SIGINT'));  // Ctrl+C
-process.on('SIGTERM', () => shutdown('SIGTERM')); // Docker stop, Kubernetes pod termination
-process.on('SIGHUP', () => shutdown('SIGHUP'));   // Terminal closed
-process.on('SIGUSR2', () => shutdown('SIGUSR2')); // Sometimes used by process managers
+// Signal handlers
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);
 
-// Handle uncaught errors to prevent crashes
-process.on('uncaughtException', (error) => {
-  logger.error(`Uncaught exception: ${error.message}`, { stack: error.stack });
-  shutdown('uncaughtException');
-});
-
-process.on('unhandledRejection', (reason, promise) => {
-  logger.error('Unhandled rejection at:', promise, 'reason:', reason);
-  shutdown('unhandledRejection');
-});
-
-start();
+// Start the application
+main();

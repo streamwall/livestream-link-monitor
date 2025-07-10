@@ -20,7 +20,7 @@ Livestream Link Monitor is a Node.js application that monitors Twitch chat and D
 - `docker compose build --no-cache` - Rebuild the Docker image
 
 ### Testing
-- `node test-sheets.js` - Test Google Sheets connection
+- `npm test` - Run unit tests
 - `node test-streamsource.js` - Test StreamSource connection
 
 ## Architecture
@@ -31,11 +31,7 @@ livestream-link-monitor/
 ├── index.js                    # Main application entry point
 ├── config.js                   # Centralized environment variable management
 ├── lib/
-│   ├── backends/              # Backend implementations
-│   │   ├── BaseBackend.js     # Abstract base class for backends
-│   │   ├── BackendManager.js  # Manages multiple backends
-│   │   ├── GoogleSheetsBackend.js  # Google Sheets implementation
-│   │   └── StreamSourceBackend.js  # StreamSource API implementation
+│   ├── streamSourceClient.js   # StreamSource API client
 │   ├── locationParser.js      # City/state extraction from messages
 │   ├── platformDetector.js    # Platform detection and URL normalization
 │   ├── rateLimiter.js        # Per-user rate limiting
@@ -65,16 +61,16 @@ livestream-link-monitor/
    - Adds new URLs with location data to StreamSource API
    - Returns success/failure for confirmation feedback
 
-3. **Backend System** (lib/backends/)
-   - **BaseBackend.js**: Abstract interface for backend implementations
-   - **BackendManager.js**: Manages the StreamSource backend
-   - **StreamSourceBackend.js**: REST API integration with JWT auth
+3. **StreamSource Integration** (lib/streamSourceClient.js)
+   - Direct REST API integration with JWT authentication
+   - Maintains cache of existing URLs and ignore lists
+   - Handles token refresh and authentication errors
+   - Supports known cities validation
 
 4. **Deduplication System**
-   - Each backend maintains its own cache of existing URLs
-   - Backend manager checks across all enabled backends
+   - StreamSource client maintains cache of existing URLs
    - Syncs periodically based on EXISTING_URLS_SYNC_INTERVAL (default: 60s)
-   - Prevents duplicate entries across backends
+   - Prevents duplicate entries in StreamSource
    - Cache operations are mutex-protected for thread safety
 
 5. **Ignore List System**
@@ -137,14 +133,14 @@ All configuration via environment variables (see ENVIRONMENT_VARIABLES.md):
 ## Key Implementation Details
 
 ### State Management
-- Global state minimal: only backend manager
-- StreamSource backend maintains URL cache
+- Global state minimal: only StreamSource client
+- StreamSource client maintains URL cache and ignore lists
 - Mutex protection for cache updates
 - Periodic sync intervals prevent stale data
 
 ### Error Handling
 - Try-catch blocks around all async operations
-- Graceful degradation (one backend failure doesn't stop others)
+- Graceful degradation on StreamSource API failures
 - Comprehensive logging with Winston
 - Uncaught exception handlers
 
@@ -164,26 +160,26 @@ All configuration via environment variables (see ENVIRONMENT_VARIABLES.md):
 
 #### New Data Field
 1. Add field to StreamSource API
-2. Update StreamSourceBackend's addStream method
+2. Update StreamSourceClient's addStream method
 3. Update data mapping
 
 ## Testing Approach
 
 ### Manual Testing
 1. Post test URLs in Discord/Twitch
-2. Check backend for new entries
+2. Check StreamSource for new entries
 3. Verify deduplication works
 4. Test ignore lists
 5. Verify location parsing
 
-### Backend Testing
-- Use provided test scripts (test-sheets.js, test-streamsource.js)
+### StreamSource Testing
+- Use provided test scripts (test-streamsource.js)
 - Enable debug logging: `LOG_LEVEL=debug`
 - Check health endpoint: `curl localhost:3000/health`
 
 ## Common Issues and Solutions
 
-### Backend Not Saving
+### StreamSource Not Saving
 1. Check StreamSource authentication (email/password)
 2. Verify StreamSource API URL is correct
 3. Check logs for specific errors
@@ -192,8 +188,8 @@ All configuration via environment variables (see ENVIRONMENT_VARIABLES.md):
 ### Duplicates Appearing
 1. Restart to rebuild cache
 2. Check URL normalization
-3. Verify backend sync is working
-4. Check for backend-specific issues
+3. Verify StreamSource sync is working
+4. Check for StreamSource-specific issues
 
 ### Location Not Detected
 1. Ensure Known Cities exist in StreamSource
@@ -218,7 +214,6 @@ All configuration via environment variables (see ENVIRONMENT_VARIABLES.md):
 
 ### Volume Mounts
 - `.env`: Environment configuration
-- `credentials.json`: Google service account
 - `logs/`: Application logs
 - `package*.json`: Read-only
 
@@ -237,7 +232,6 @@ All configuration via environment variables (see ENVIRONMENT_VARIABLES.md):
 5. Update dependencies
 
 ### Backup Considerations
-- Google Sheets: Automatic versioning
 - StreamSource: Implement export if needed
 - Configuration: Backup .env file
 - Logs: Rotate regularly
@@ -278,7 +272,6 @@ All configuration via environment variables (see ENVIRONMENT_VARIABLES.md):
 ## Important Notes
 
 - Always validate environment variables on changes
-- Test backend changes in dual-write mode first
-- Keep at least one backend enabled
-- Monitor rate limits for both Discord and backends
+- Test StreamSource changes thoroughly before deployment
+- Monitor rate limits for both Discord and StreamSource
 - Regular backups recommended for production use
