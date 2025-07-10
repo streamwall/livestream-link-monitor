@@ -12,9 +12,10 @@ services:
       # Twitch Configuration
       - TWITCH_CHANNEL=${TWITCH_CHANNEL}
 
-      # Google Sheets Configuration
-      - GOOGLE_SHEET_ID=${GOOGLE_SHEET_ID}
-      - GOOGLE_CREDENTIALS_PATH=/app/credentials.json
+      # StreamSource API Configuration
+      - STREAMSOURCE_API_URL=${STREAMSOURCE_API_URL:-https://api.streamsource.com}
+      - STREAMSOURCE_EMAIL=${STREAMSOURCE_EMAIL}
+      - STREAMSOURCE_PASSWORD=${STREAMSOURCE_PASSWORD}
 
       # Optional Configuration
       - IGNORE_LIST_SYNC_INTERVAL=${IGNORE_LIST_SYNC_INTERVAL:-30000}
@@ -25,25 +26,7 @@ services:
       - RATE_LIMIT_WINDOW_MS=${RATE_LIMIT_WINDOW_MS:-60000}
       - RATE_LIMIT_MAX_REQUESTS=${RATE_LIMIT_MAX_REQUESTS:-10}
 
-      # Sheet configuration (optional)
-      - SHEET_TAB_LIVESTREAMS=${SHEET_TAB_LIVESTREAMS:-Livesheet}
-      - SHEET_TAB_TWITCH_IGNORE=${SHEET_TAB_TWITCH_IGNORE:-Twitch User Ignorelist}
-      - SHEET_TAB_DISCORD_IGNORE=${SHEET_TAB_DISCORD_IGNORE:-Discord User Ignorelist}
-      - SHEET_TAB_URL_IGNORE=${SHEET_TAB_URL_IGNORE:-URL Ignorelist}
-      - SHEET_TAB_KNOWN_CITIES=${SHEET_TAB_KNOWN_CITIES:-Known Cities}
-
-      # Column configuration (optional)
-      - COLUMN_SOURCE=${COLUMN_SOURCE:-Source}
-      - COLUMN_PLATFORM=${COLUMN_PLATFORM:-Platform}
-      - COLUMN_STATUS=${COLUMN_STATUS:-Status}
-      - COLUMN_LINK=${COLUMN_LINK:-Link}
-      - COLUMN_ADDED_DATE=${COLUMN_ADDED_DATE:-Added Date}
-      - COLUMN_POSTED_BY=${COLUMN_POSTED_BY:-Posted By}
-      - COLUMN_CITY=${COLUMN_CITY:-City}
-      - COLUMN_STATE=${COLUMN_STATE:-State}
-
       # Other configuration (optional)
-      - STATUS_NEW_LINK=${STATUS_NEW_LINK:-Live}
       - TIMEZONE=${TIMEZONE:-America/Los_Angeles}
       - LOG_LEVEL=${LOG_LEVEL:-info}
 
@@ -51,19 +34,7 @@ services:
       - DISCORD_CONFIRM_REACTION=${DISCORD_CONFIRM_REACTION:-true}
       - TWITCH_CONFIRM_REPLY=${TWITCH_CONFIRM_REPLY:-true}
 
-      # Backend Configuration
-      - BACKEND_MODE=${BACKEND_MODE:-single}
-      - BACKEND_PRIMARY=${BACKEND_PRIMARY:-googleSheets}
-      - BACKEND_GOOGLE_SHEETS_ENABLED=${BACKEND_GOOGLE_SHEETS_ENABLED:-true}
-      - BACKEND_STREAMSOURCE_ENABLED=${BACKEND_STREAMSOURCE_ENABLED:-false}
-
-      # StreamSource Configuration (if enabled)
-      - STREAMSOURCE_API_URL=${STREAMSOURCE_API_URL:-https://api.streamsource.com}
-      - STREAMSOURCE_EMAIL=${STREAMSOURCE_EMAIL}
-      - STREAMSOURCE_PASSWORD=${STREAMSOURCE_PASSWORD}
-
     volumes:
-      - ./credentials.json:/app/credentials.json:ro
       - ./logs:/app/logs
       - ./.env:/app/.env:ro
       - ./index.js:/app/index.js:ro

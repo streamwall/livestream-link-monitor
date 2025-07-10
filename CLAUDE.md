@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Livestream Link Monitor is a Node.js application that monitors Twitch chat and Discord channels for livestream links, extracts location information from messages, and records new links to a configurable backend (Google Sheets, StreamSource API, or both).
+Livestream Link Monitor is a Node.js application that monitors Twitch chat and Discord channels for livestream links, extracts location information from messages, and records new links to the StreamSource API.
 
 ## Commands
 
@@ -62,19 +62,13 @@ livestream-link-monitor/
    - Checks if URL already exists in backend
    - Detects platform (Twitch, YouTube, TikTok, Kick, Facebook)
    - Parses location (city/state) from message content (lib/locationParser.js)
-   - Adds new URLs with location data to configured backend
+   - Adds new URLs with location data to StreamSource API
    - Returns success/failure for confirmation feedback
 
 3. **Backend System** (lib/backends/)
-   - **BaseBackend.js**: Abstract interface all backends must implement
-   - **BackendManager.js**: Coordinates multiple backends, handles modes
-   - **GoogleSheetsBackend.js**: Full-featured Google Sheets integration
+   - **BaseBackend.js**: Abstract interface for backend implementations
+   - **BackendManager.js**: Manages the StreamSource backend
    - **StreamSourceBackend.js**: REST API integration with JWT auth
-   
-   Backend Modes:
-   - `single`: Use only the primary backend
-   - `dual-write`: Write to all enabled backends
-   - `migrate`: Transition mode for safe migration
 
 4. **Deduplication System**
    - Each backend maintains its own cache of existing URLs
@@ -83,15 +77,15 @@ livestream-link-monitor/
    - Prevents duplicate entries across backends
    - Cache operations are mutex-protected for thread safety
 
-5. **Ignore List System** (Google Sheets only)
-   - Three types: Twitch users, Discord users, URLs
-   - Fetches from configurable Google Sheets tabs
+5. **Ignore List System**
+   - Four types: Twitch users, Discord users, URLs, domains
+   - Fetches from StreamSource API
    - Syncs periodically based on IGNORE_LIST_SYNC_INTERVAL (default: 10s)
    - Normalizes values (trim whitespace, lowercase usernames, normalize URLs)
    - Filters messages before URL extraction and processing
 
 6. **Location Parsing System** (lib/locationParser.js)
-   - Fetches known cities from backend (Google Sheets only currently)
+   - Fetches known cities from StreamSource API
    - Caches city/state data with normalized lookups
    - Supports common city aliases:
      - NYC → New York City
@@ -130,13 +124,8 @@ All configuration via environment variables (see ENVIRONMENT_VARIABLES.md):
 - `DISCORD_TOKEN`: Discord bot token
 - `DISCORD_CHANNEL_ID`: Channel to monitor
 - `TWITCH_CHANNEL`: Twitch channel (no #)
-- `GOOGLE_SHEET_ID`: Sheet ID (required even for StreamSource)
-
-### Backend Selection
-- `BACKEND_MODE`: single/dual-write/migrate
-- `BACKEND_PRIMARY`: googleSheets/streamSource
-- `BACKEND_GOOGLE_SHEETS_ENABLED`: true/false
-- `BACKEND_STREAMSOURCE_ENABLED`: true/false
+- `STREAMSOURCE_EMAIL`: StreamSource login email
+- `STREAMSOURCE_PASSWORD`: StreamSource password
 
 ### Optional (with defaults)
 - Sync intervals (ms): ignore lists (10s), URLs (60s), cities (5m)
@@ -148,8 +137,8 @@ All configuration via environment variables (see ENVIRONMENT_VARIABLES.md):
 ## Key Implementation Details
 
 ### State Management
-- Global state minimal: only backend manager and ignore lists
-- Each backend maintains its own state/caches
+- Global state minimal: only backend manager
+- StreamSource backend maintains URL cache
 - Mutex protection for cache updates
 - Periodic sync intervals prevent stale data
 
@@ -173,17 +162,10 @@ All configuration via environment variables (see ENVIRONMENT_VARIABLES.md):
 3. Update `allowedDomains` in urlValidator.js
 4. Test URL extraction and normalization
 
-#### New Backend
-1. Create new file extending BaseBackend
-2. Implement all required methods
-3. Add to BackendManager initialization
-4. Update configuration handling
-
 #### New Data Field
-1. Add column to Google Sheets
-2. Add environment variable for column name
-3. Update backend's addStream method
-4. Update data mapping
+1. Add field to StreamSource API
+2. Update StreamSourceBackend's addStream method
+3. Update data mapping
 
 ## Testing Approach
 
@@ -202,10 +184,10 @@ All configuration via environment variables (see ENVIRONMENT_VARIABLES.md):
 ## Common Issues and Solutions
 
 ### Backend Not Saving
-1. Check authentication (credentials, tokens)
-2. Verify backend is enabled in config
+1. Check StreamSource authentication (email/password)
+2. Verify StreamSource API URL is correct
 3. Check logs for specific errors
-4. Test backend connection independently
+4. Test API connection independently
 
 ### Duplicates Appearing
 1. Restart to rebuild cache
@@ -214,8 +196,8 @@ All configuration via environment variables (see ENVIRONMENT_VARIABLES.md):
 4. Check for backend-specific issues
 
 ### Location Not Detected
-1. Ensure Known Cities sheet has data
-2. Check Google Sheets is enabled (required for cities)
+1. Ensure Known Cities exist in StreamSource
+2. Check API connection is working
 3. Verify city aliases are working
 4. Check message format
 
@@ -264,7 +246,7 @@ All configuration via environment variables (see ENVIRONMENT_VARIABLES.md):
 - Application logs: Winston to file
 - Docker logs: `docker compose logs`
 - Health endpoint: HTTP health check
-- Backend-specific monitoring
+- StreamSource API monitoring
 
 ## Security Considerations
 
@@ -287,13 +269,11 @@ All configuration via environment variables (see ENVIRONMENT_VARIABLES.md):
 7. Admin commands
 8. Analytics and reporting
 
-### StreamSource API Gaps
-Currently missing (use Google Sheets for these):
-- Ignore list management
-- Known cities management
-- Bulk export without feature flag
-
-Monitor StreamSource API updates for new features.
+### StreamSource API Features
+- Full ignore list management with admin UI
+- Known cities management with location validation
+- Bulk operations support
+- Real-time updates via WebSocket
 
 ## Important Notes
 

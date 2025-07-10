@@ -1,6 +1,6 @@
 # Livestream Link Monitor
 
-A Node.js application that monitors Twitch chat and Discord channels for livestream links and automatically records them to a configurable backend (Google Sheets, StreamSource API, or both).
+A Node.js application that monitors Twitch chat and Discord channels for livestream links and automatically records them to the StreamSource API.
 
 ## Features
 
@@ -16,11 +16,11 @@ A Node.js application that monitors Twitch chat and Discord channels for livestr
   - Kick (kick.com)
   - Facebook (facebook.com, fb.watch)
 
-- **Flexible Backend System**
-  - Google Sheets integration (full features)
-  - StreamSource API integration
-  - Dual-backend mode for redundancy
-  - Migration support between backends
+- **StreamSource API Integration**
+  - Centralized stream data management
+  - Real-time updates via API
+  - User and URL ignore lists
+  - Known cities validation
 
 - **Smart Features**
   - Automatic deduplication across backends
@@ -48,7 +48,7 @@ A Node.js application that monitors Twitch chat and Discord channels for livestr
 1. **Node.js** (v16 or higher) - if running locally
 2. **Docker** & **Docker Compose** - for containerized deployment
 3. **Discord Bot** - [Create at Discord Developer Portal](https://discord.com/developers/applications)
-4. **Backend Account** - Either Google Sheets or StreamSource (or both)
+4. **StreamSource Account** - Required for API access
 5. **Make** (optional) - For using the Makefile commands
 
 ### Basic Setup
@@ -80,11 +80,12 @@ A Node.js application that monitors Twitch chat and Discord channels for livestr
    # Twitch Configuration
    TWITCH_CHANNEL=channel_name_without_hash
    
-   # Google Sheets (if using)
-   GOOGLE_SHEET_ID=your_sheet_id
+   # StreamSource API (required)
+   STREAMSOURCE_EMAIL=your_email
+   STREAMSOURCE_PASSWORD=your_password
    ```
 
-4. **Choose your backend** (see [Backend Configuration](#backend-configuration) below)
+4. **Configure StreamSource API** credentials in `.env`
 
 5. **Start the application**
    ```bash
@@ -99,90 +100,51 @@ A Node.js application that monitors Twitch chat and Discord channels for livestr
    npm run dev             # Development
    ```
 
-## Backend Configuration
+## StreamSource API Configuration
 
-### Option 1: Google Sheets (Recommended for Beginners)
+The application uses StreamSource API as its backend for storing stream data, managing ignore lists, and validating locations.
 
-**Pros:** Easy setup, visual interface, full feature support, free  
-**Cons:** Requires Google Cloud setup, API quotas
+### Features:
+- **Stream Management:** Automatic deduplication and storage
+- **Ignore Lists:** Manage blocked users and URLs via API
+- **Location Validation:** Known cities database for accurate location parsing
+- **Real-time Updates:** Instant data synchronization
 
-1. **Create Google Cloud Project**
-   - Go to [Google Cloud Console](https://console.cloud.google.com/)
-   - Create new project
-   - Enable Google Sheets API
-   - Create service account
-   - Download credentials as `credentials.json`
-
-2. **Setup Google Sheet**
-   - Create new Google Sheet
-   - Add required tabs (see [Sheet Structure](#google-sheet-structure))
-   - Share with service account email
-
-3. **Configure in `.env`**
-   ```bash
-   GOOGLE_SHEET_ID=your_sheet_id
-   GOOGLE_CREDENTIALS_PATH=./credentials.json
-   ```
-
-### Option 2: StreamSource API
-
-**Pros:** Proper REST API, programmatic access, scalable  
-**Cons:** No ignore lists or location parsing (yet), requires account
+### Setup:
 
 1. **Create StreamSource Account**
+   - Contact the StreamSource team for API access
+   - Obtain your login credentials
 
 2. **Configure in `.env`**
    ```bash
-   BACKEND_MODE=single
-   BACKEND_PRIMARY=streamSource
-   BACKEND_GOOGLE_SHEETS_ENABLED=false
-   BACKEND_STREAMSOURCE_ENABLED=true
+   # StreamSource API Configuration
+   STREAMSOURCE_API_URL=https://api.streamsource.com
    STREAMSOURCE_EMAIL=your@email.com
    STREAMSOURCE_PASSWORD=your_password
    ```
 
-### Option 3: Both Backends (Best of Both Worlds)
+That's it! The application will automatically connect to StreamSource on startup.
 
-1. **Setup both backends** (see above)
+## Data Management in StreamSource
 
-2. **Configure for dual-write**
-   ```bash
-   BACKEND_MODE=dual-write
-   BACKEND_PRIMARY=googleSheets
-   BACKEND_GOOGLE_SHEETS_ENABLED=true
-   BACKEND_STREAMSOURCE_ENABLED=true
-   ```
+### Stream Data
+Streams are automatically added with the following information:
+- **Source:** Where the link was found (Discord/Twitch)
+- **Platform:** Streaming platform (Twitch, YouTube, etc.)
+- **Link:** The stream URL
+- **Location:** Parsed city/state from the message
+- **Posted By:** Username who shared the link
 
-For detailed backend setup, see:
-- [SETUP_INSTRUCTIONS.md](SETUP_INSTRUCTIONS.md) - Step-by-step guide
-- [BACKEND_QUICK_REFERENCE.md](BACKEND_QUICK_REFERENCE.md) - Quick selection guide
-- [BACKEND_CONFIGURATION.md](BACKEND_CONFIGURATION.md) - Detailed configuration
+### Ignore Lists
+Manage blocked users and URLs through the StreamSource admin panel:
+- **Twitch Users:** Block specific Twitch usernames
+- **Discord Users:** Block specific Discord usernames
+- **URLs:** Block specific stream URLs
+- **Domains:** Block entire domains
 
-## Google Sheet Structure
-
-Create these tabs in your Google Sheet:
-
-### Main Tab: "Livesheet"
-Headers in row 1:
-```
-Source | Platform | Status | Link | Added Date | Posted By | City | State
-```
-
-### Ignore List Tabs
-- **"Twitch User Ignorelist"** - Column A: Username
-- **"Discord User Ignorelist"** - Column A: Username  
-- **"URL Ignorelist"** - Column A: URL
-
-### Location Data Tab
-- **"Known Cities"** - Column A: City, Column B: State
-
-Example cities:
-```
-City          | State
-New York City | NY
-Los Angeles   | CA
-Chicago       | IL
-```
+### Location Management
+StreamSource maintains a database of known cities for accurate location parsing. Cities are validated against this database when LOCATION_VALIDATION is enabled.
 
 ## Configuration Reference
 
@@ -195,9 +157,8 @@ See [ENVIRONMENT_VARIABLES.md](ENVIRONMENT_VARIABLES.md) for complete reference.
 | `DISCORD_TOKEN` | Discord bot token | Yes |
 | `DISCORD_CHANNEL_ID` | Discord channel to monitor | Yes |
 | `TWITCH_CHANNEL` | Twitch channel to monitor | Yes |
-| `GOOGLE_SHEET_ID` | Google Sheet ID | Yes* |
-
-*Required even when using StreamSource only (technical limitation)
+| `STREAMSOURCE_EMAIL` | StreamSource login email | Yes |
+| `STREAMSOURCE_PASSWORD` | StreamSource password | Yes |
 
 ### Common Optional Settings
 
