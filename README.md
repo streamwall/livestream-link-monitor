@@ -239,7 +239,6 @@ make test-backends     # Test all configured backends
 make env-check        # Validate environment configuration
 
 # Or run directly
-node test-sheets.js        # Test Google Sheets connection
 node test-streamsource.js  # Test StreamSource connection
 ```
 
@@ -266,13 +265,11 @@ livestream-link-monitor/
 - Supports common abbreviations (NYC, LA, SF)
 - Case-insensitive matching
 - Configurable known cities list
-- *Note: Only available with Google Sheets backend*
 
 ### Ignore Lists
 - Filter out specific users or URLs
 - Separate lists for Twitch and Discord users
 - Automatically synced every 10 seconds
-- *Note: Only available with Google Sheets backend*
 
 ### Rate Limiting
 - Prevents spam from individual users
@@ -309,7 +306,7 @@ livestream-link-monitor/
 
 **Location not detected**
 - Ensure Known Cities tab has data
-- Check Google Sheets backend is enabled
+- Check StreamSource backend is enabled
 - Verify message contains valid city
 
 For detailed troubleshooting, see [BACKEND_TROUBLESHOOTING.md](BACKEND_TROUBLESHOOTING.md)

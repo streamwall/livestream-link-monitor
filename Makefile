@@ -34,7 +34,6 @@ help:
 	@echo ""
 	@echo "$(GREEN)Backend & Data:$(NC)"
 	@echo "  make sync       - Sync all data (sheets, ignore lists, cities)"
-	@echo "  make sync-sheets   - Sync Google Sheets data only"
 	@echo "  make sync-source   - Sync StreamSource data only"
 	@echo "  make backup-config - Backup configuration files"
 	@echo "  make restore-config - Restore configuration from backup"
@@ -160,11 +159,6 @@ sync:
 	@docker compose exec livestream-monitor node -e "console.log('Triggering full sync...')"
 	@echo "$(GREEN)✅ Data sync initiated$(NC)"
 
-# Sync Google Sheets data only
-sync-sheets:
-	@echo "$(BOLD)$(CYAN)📊 Testing Google Sheets connection...$(NC)"
-	@node test-sheets.js
-	@echo "$(GREEN)✅ Google Sheets sync completed$(NC)"
 
 # Sync StreamSource data only
 sync-source:
@@ -177,7 +171,6 @@ backup-config:
 	@echo "$(BOLD)$(CYAN)💾 Creating configuration backup...$(NC)"
 	@mkdir -p backups
 	@if [ -f .env ]; then cp .env backups/.env.backup.$$(date +%Y%m%d_%H%M%S); fi
-	@if [ -f credentials.json ]; then cp credentials.json backups/credentials.backup.$$(date +%Y%m%d_%H%M%S); fi
 	@echo "$(GREEN)✅ Configuration backup created in backups/ directory$(NC)"
 
 # Restore configuration from backup
@@ -210,7 +203,6 @@ test-unit:
 # Run integration tests only
 test-integration:
 	@echo "$(BOLD)$(CYAN)🔗 Running integration tests...$(NC)"
-	@make test-sheets --no-print-directory
 	@make test-source --no-print-directory
 
 # Run backend tests only
@@ -286,13 +278,6 @@ security:
 			echo "$(RED)⚠️  WARNING: .env file permissions are too open$(NC)"; \
 		else \
 			echo "$(GREEN)✅ .env file permissions OK$(NC)"; \
-		fi; \
-	fi
-	@if [ -f credentials.json ]; then \
-		if [ "$$(stat -f %A credentials.json 2>/dev/null || stat -c %a credentials.json 2>/dev/null)" != "600" ]; then \
-			echo "$(RED)⚠️  WARNING: credentials.json permissions are too open$(NC)"; \
-		else \
-			echo "$(GREEN)✅ credentials.json permissions OK$(NC)"; \
 		fi; \
 	fi
 	@echo ""
@@ -391,7 +376,6 @@ setup:
 	@echo ""
 	@echo "$(BOLD)$(GREEN)✅ Setup complete! Next steps:$(NC)"
 	@echo "1. Edit .env with your Discord, Twitch, and backend credentials"
-	@echo "2. Add credentials.json for Google Sheets access (if using)"
 	@echo "3. Run '$(CYAN)make dev$(NC)' to start the application"
 	@echo "4. Run '$(CYAN)make test$(NC)' to verify everything works"
 
@@ -408,9 +392,7 @@ env-check:
 	@grep -q "DISCORD_CHANNEL_ID=." .env && echo "$(GREEN)✅ DISCORD_CHANNEL_ID$(NC)" || echo "$(RED)❌ DISCORD_CHANNEL_ID not set$(NC)"
 	@grep -q "TWITCH_CHANNEL=." .env && echo "$(GREEN)✅ TWITCH_CHANNEL$(NC)" || echo "$(RED)❌ TWITCH_CHANNEL not set$(NC)"
 	@echo "$(CYAN)Checking backend configuration...$(NC)"
-	@grep -q "GOOGLE_SHEET_ID=." .env && echo "$(GREEN)✅ GOOGLE_SHEET_ID$(NC)" || echo "$(YELLOW)⚠️  GOOGLE_SHEET_ID not set$(NC)"
 	@grep -q "STREAMSOURCE_API_URL=." .env && echo "$(GREEN)✅ STREAMSOURCE_API_URL$(NC)" || echo "$(YELLOW)⚠️  STREAMSOURCE_API_URL not set$(NC)"
-	@if [ -f credentials.json ]; then echo "$(GREEN)✅ credentials.json found$(NC)"; else echo "$(YELLOW)⚠️  credentials.json not found$(NC)"; fi
 	@echo "$(GREEN)✅ Configuration check complete$(NC)"
 
 # Show current configuration (sanitized)
@@ -424,7 +406,6 @@ config:
 	fi
 	@echo ""
 	@echo "$(CYAN)Backend Status:$(NC)"
-	@grep -q "BACKEND_GOOGLE_SHEETS_ENABLED=true" .env && echo "$(GREEN)✅ Google Sheets enabled$(NC)" || echo "$(YELLOW)⚠️  Google Sheets disabled$(NC)"
 	@grep -q "BACKEND_STREAMSOURCE_ENABLED=true" .env && echo "$(GREEN)✅ StreamSource enabled$(NC)" || echo "$(YELLOW)⚠️  StreamSource disabled$(NC)"
 	@echo ""
 	@echo "$(CYAN)Node.js Version:$(NC)"
