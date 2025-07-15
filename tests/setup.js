@@ -16,8 +16,9 @@ process.env.LOG_LEVEL = 'error';
 process.env.DISCORD_TOKEN = 'test-discord-token';
 process.env.DISCORD_CHANNEL_ID = 'test-channel-id';
 process.env.TWITCH_CHANNEL = 'test-twitch-channel';
-process.env.GOOGLE_SHEET_ID = 'test-sheet-id';
-process.env.GOOGLE_CREDENTIALS_PATH = './test-credentials.json';
+process.env.STREAMSOURCE_API_URL = 'http://localhost:3000';
+process.env.STREAMSOURCE_EMAIL = 'test@example.com';
+process.env.STREAMSOURCE_PASSWORD = 'test-password';
 
 // Mock timers for tests
 jest.useFakeTimers();

@@ -126,7 +126,6 @@ All configuration via environment variables (see ENVIRONMENT_VARIABLES.md):
 ### Optional (with defaults)
 - Sync intervals (ms): ignore lists (10s), URLs (60s), cities (5m)
 - Rate limiting: window (60s), max requests (10)
-- Sheet tab/column names (fully customizable)
 - Logging: level (info), file (app.log)
 - Confirmations: Discord reactions, Twitch replies
 

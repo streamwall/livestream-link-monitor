@@ -12,7 +12,6 @@ describe('config', () => {
     process.env.DISCORD_TOKEN = 'test-token';
     process.env.DISCORD_CHANNEL_ID = 'test-channel';
     process.env.TWITCH_CHANNEL = 'test-twitch';
-    process.env.GOOGLE_SHEET_ID = 'test-sheet';
   });
 
   afterEach(() => {
@@ -68,13 +67,6 @@ describe('config', () => {
       expect(config.TWITCH_CHANNEL).toBe('test-twitch');
     });
 
-    it('should load Google Sheets configuration', () => {
-      const config = require('./config');
-
-      expect(config.GOOGLE_SHEET_ID).toBe('test-sheet');
-      expect(config.GOOGLE_CREDENTIALS_PATH).toBe('./credentials.json');
-    });
-
     it('should handle missing required values with empty strings', () => {
       delete process.env.DISCORD_TOKEN;
       const config = require('./config');
@@ -102,51 +94,6 @@ describe('config', () => {
       expect(config.IGNORE_LIST_SYNC_INTERVAL).toBe(30000);
       expect(config.EXISTING_URLS_SYNC_INTERVAL).toBe(120000);
       expect(config.KNOWN_CITIES_SYNC_INTERVAL).toBe(600000);
-    });
-  });
-
-  describe('sheet configuration', () => {
-    it('should use default sheet tab names', () => {
-      const config = require('./config');
-
-      expect(config.SHEET_TAB_LIVESTREAMS).toBe('Livesheet');
-      expect(config.SHEET_TAB_TWITCH_IGNORE).toBe('Twitch User Ignorelist');
-      expect(config.SHEET_TAB_DISCORD_IGNORE).toBe('Discord User Ignorelist');
-      expect(config.SHEET_TAB_URL_IGNORE).toBe('URL Ignorelist');
-      expect(config.SHEET_TAB_KNOWN_CITIES).toBe('Known Cities');
-    });
-
-    it('should use custom sheet tab names when provided', () => {
-      process.env.SHEET_TAB_LIVESTREAMS = 'Custom Streams';
-      process.env.SHEET_TAB_KNOWN_CITIES = 'Cities Data';
-
-      const config = require('./config');
-
-      expect(config.SHEET_TAB_LIVESTREAMS).toBe('Custom Streams');
-      expect(config.SHEET_TAB_KNOWN_CITIES).toBe('Cities Data');
-    });
-  });
-
-  describe('column configuration', () => {
-    it('should use default column names', () => {
-      const config = require('./config');
-
-      expect(config.COLUMN_SOURCE).toBe('Source');
-      expect(config.COLUMN_PLATFORM).toBe('Platform');
-      expect(config.COLUMN_STATUS).toBe('Status');
-      expect(config.COLUMN_LINK).toBe('Link');
-      expect(config.COLUMN_CITY).toBe('City');
-      expect(config.COLUMN_STATE).toBe('State');
-    });
-
-    it('should use custom column names when provided', () => {
-      process.env.COLUMN_SOURCE = 'Streamer';
-      process.env.COLUMN_LINK = 'URL';
-
-      const config = require('./config');
-
-      expect(config.COLUMN_SOURCE).toBe('Streamer');
-      expect(config.COLUMN_LINK).toBe('URL');
     });
   });
 
@@ -179,38 +126,13 @@ describe('config', () => {
     });
   });
 
-  describe('backend configuration', () => {
-    it('should use default backend settings', () => {
-      const config = require('./config');
-
-      expect(config.BACKEND_MODE).toBe('single');
-      expect(config.BACKEND_PRIMARY).toBe('googleSheets');
-      expect(config.BACKEND_GOOGLE_SHEETS_ENABLED).toBe('true');
-      expect(config.BACKEND_STREAMSOURCE_ENABLED).toBe('false');
-    });
-
-    it('should use custom backend settings', () => {
-      process.env.BACKEND_MODE = 'dual-write';
-      process.env.BACKEND_PRIMARY = 'streamSource';
-      process.env.BACKEND_GOOGLE_SHEETS_ENABLED = 'false';
-      process.env.BACKEND_STREAMSOURCE_ENABLED = 'true';
-
-      const config = require('./config');
-
-      expect(config.BACKEND_MODE).toBe('dual-write');
-      expect(config.BACKEND_PRIMARY).toBe('streamSource');
-      expect(config.BACKEND_GOOGLE_SHEETS_ENABLED).toBe('false');
-      expect(config.BACKEND_STREAMSOURCE_ENABLED).toBe('true');
-    });
-  });
-
   describe('StreamSource configuration', () => {
     it('should use default StreamSource settings', () => {
       const config = require('./config');
 
-      expect(config.STREAMSOURCE_API_URL).toBe('https://api.streamsource.com');
-      expect(config.STREAMSOURCE_EMAIL).toBe('');
-      expect(config.STREAMSOURCE_PASSWORD).toBe('');
+      expect(config.STREAMSOURCE_API_URL).toBe('http://localhost:3000');
+      expect(config.STREAMSOURCE_EMAIL).toBe('test@example.com');
+      expect(config.STREAMSOURCE_PASSWORD).toBe('test-password');
     });
 
     it('should use custom StreamSource settings', () => {
@@ -226,26 +148,39 @@ describe('config', () => {
     });
   });
 
-  describe('other configuration', () => {
-    it('should use default values', () => {
+  describe('rate limiting configuration', () => {
+    it('should use default rate limiting values', () => {
       const config = require('./config');
 
-      expect(config.STATUS_NEW_LINK).toBe('Live');
-      expect(config.TIMEZONE).toBe('America/Los_Angeles');
-      expect(config.LOG_LEVEL).toBe('info');
+      expect(config.RATE_LIMIT_WINDOW_MS).toBe(60000);
+      expect(config.RATE_LIMIT_MAX_REQUESTS).toBe(10);
+    });
+
+    it('should use custom rate limiting values', () => {
+      process.env.RATE_LIMIT_WINDOW_MS = '30000';
+      process.env.RATE_LIMIT_MAX_REQUESTS = '5';
+
+      const config = require('./config');
+
+      expect(config.RATE_LIMIT_WINDOW_MS).toBe(30000);
+      expect(config.RATE_LIMIT_MAX_REQUESTS).toBe(5);
+    });
+  });
+
+  describe('logging configuration', () => {
+    it('should use default logging values', () => {
+      const config = require('./config');
+
+      expect(config.LOG_LEVEL).toBe('error');
       expect(config.LOG_FILE).toBe('app.log');
     });
 
-    it('should use custom values when provided', () => {
-      process.env.STATUS_NEW_LINK = 'Active';
-      process.env.TIMEZONE = 'America/New_York';
+    it('should use custom logging values when provided', () => {
       process.env.LOG_LEVEL = 'debug';
       process.env.LOG_FILE = 'custom.log';
 
       const config = require('./config');
 
-      expect(config.STATUS_NEW_LINK).toBe('Active');
-      expect(config.TIMEZONE).toBe('America/New_York');
       expect(config.LOG_LEVEL).toBe('debug');
       expect(config.LOG_FILE).toBe('custom.log');
     });
@@ -258,11 +193,14 @@ describe('config', () => {
         // Discord
         'DISCORD_TOKEN',
         'DISCORD_CHANNEL_ID',
+        'DISCORD_CONFIRM_REACTION',
         // Twitch
         'TWITCH_CHANNEL',
-        // Google Sheets
-        'GOOGLE_SHEET_ID',
-        'GOOGLE_CREDENTIALS_PATH',
+        'TWITCH_CONFIRM_REPLY',
+        // StreamSource
+        'STREAMSOURCE_API_URL',
+        'STREAMSOURCE_EMAIL',
+        'STREAMSOURCE_PASSWORD',
         // Sync intervals
         'IGNORE_LIST_SYNC_INTERVAL',
         'EXISTING_URLS_SYNC_INTERVAL',
@@ -270,36 +208,9 @@ describe('config', () => {
         // Rate limiting
         'RATE_LIMIT_WINDOW_MS',
         'RATE_LIMIT_MAX_REQUESTS',
-        // Sheet tabs
-        'SHEET_TAB_LIVESTREAMS',
-        'SHEET_TAB_TWITCH_IGNORE',
-        'SHEET_TAB_DISCORD_IGNORE',
-        'SHEET_TAB_URL_IGNORE',
-        'SHEET_TAB_KNOWN_CITIES',
-        // Columns
-        'COLUMN_SOURCE',
-        'COLUMN_PLATFORM',
-        'COLUMN_STATUS',
-        'COLUMN_LINK',
-        'COLUMN_ADDED_DATE',
-        'COLUMN_POSTED_BY',
-        'COLUMN_CITY',
-        'COLUMN_STATE',
-        // Other
-        'STATUS_NEW_LINK',
-        'TIMEZONE',
+        // Logging
         'LOG_LEVEL',
-        'LOG_FILE',
-        'DISCORD_CONFIRM_REACTION',
-        'TWITCH_CONFIRM_REPLY',
-        // Backend
-        'BACKEND_MODE',
-        'BACKEND_PRIMARY',
-        'BACKEND_GOOGLE_SHEETS_ENABLED',
-        'BACKEND_STREAMSOURCE_ENABLED',
-        'STREAMSOURCE_API_URL',
-        'STREAMSOURCE_EMAIL',
-        'STREAMSOURCE_PASSWORD'
+        'LOG_FILE'
       ];
 
       expectedKeys.forEach(key => {

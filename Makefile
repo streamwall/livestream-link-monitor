@@ -33,7 +33,7 @@ help:
 	@echo "  make local      - Run locally with nodemon"
 	@echo ""
 	@echo "$(GREEN)Backend & Data:$(NC)"
-	@echo "  make sync       - Sync all data (sheets, ignore lists, cities)"
+	@echo "  make sync       - Sync all data (ignore lists, cities)"
 	@echo "  make sync-source   - Sync StreamSource data only"
 	@echo "  make backup-config - Backup configuration files"
 	@echo "  make restore-config - Restore configuration from backup"
@@ -153,7 +153,7 @@ local:
 	@npm run dev
 
 # Backend & Data Management
-# Sync all data (sheets, ignore lists, cities)
+# Sync all data (ignore lists, cities)
 sync:
 	@echo "$(BOLD)$(CYAN)🔄 Syncing all backend data...$(NC)"
 	@docker compose exec livestream-monitor node -e "console.log('Triggering full sync...')"
